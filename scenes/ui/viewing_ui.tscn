@@ -1,0 +1,38 @@
+[gd_scene load_steps=2 format=3 uid="uid://dx8prw2beqcqc"]
+
+[ext_resource type="Script" uid="uid://dkoc2o3h5xw86" path="res://scripts/viewing_ui.gd" id="1_viewing"]
+
+[node name="ViewingUI" type="CanvasLayer"]
+script = ExtResource("1_viewing")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -150.0
+offset_right = 200.0
+offset_bottom = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+
+[node name="PlayerLabel" type="Label" parent="Panel/VBoxContainer"]
+layout_mode = 2
+text = "Player 1"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="StatusLabel" type="Label" parent="Panel/VBoxContainer"]
+layout_mode = 2
+text = "Memorize your bottom 2 cards"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ReadyButton" type="Button" parent="Panel/VBoxContainer"]
+layout_mode = 2
+text = "I'm Ready"

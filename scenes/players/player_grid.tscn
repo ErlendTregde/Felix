@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://bwx9yw4qln8zg"]
+
+[ext_resource type="Script" path="res://scripts/player_grid.gd" id="1_grid"]
+
+[node name="PlayerGrid" type="Node3D"]
+script = ExtResource("1_grid")
+grid_spacing = 1.6
+
+[node name="PositionMarkers" type="Node3D" parent="."]

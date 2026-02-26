@@ -1,0 +1,38 @@
+[gd_scene load_steps=2 format=3 uid="uid://turn_ui"]
+
+[ext_resource type="Script" path="res://scripts/turn_ui.gd" id="1_turn"]
+
+[node name="TurnUI" type="CanvasLayer"]
+script = ExtResource("1_turn")
+
+[node name="TurnPanel" type="PanelContainer" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 20.0
+offset_right = 200.0
+offset_bottom = 120.0
+grow_horizontal = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="TurnPanel"]
+layout_mode = 2
+
+[node name="PlayerLabel" type="Label" parent="TurnPanel/VBoxContainer"]
+layout_mode = 2
+text = "Player 1's Turn"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ActionLabel" type="Label" parent="TurnPanel/VBoxContainer"]
+layout_mode = 2
+text = "Your Turn!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="InstructionLabel" type="Label" parent="TurnPanel/VBoxContainer"]
+layout_mode = 2
+text = "Click draw pile to draw a card"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 2

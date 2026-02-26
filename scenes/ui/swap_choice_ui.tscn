@@ -1,0 +1,45 @@
+[gd_scene load_steps=2 format=3 uid="uid://clqj3y8v5vfxp"]
+
+[ext_resource type="Script" path="res://scripts/swap_choice_ui.gd" id="1_swap_choice"]
+
+[node name="SwapChoiceUI" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_swap_choice")
+
+[node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -80.0
+offset_right = 150.0
+offset_bottom = 80.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Panel/VBoxContainer"]
+layout_mode = 2
+text = "Swap these cards?"
+horizontal_alignment = 1
+
+[node name="SwapButton" type="Button" parent="Panel/VBoxContainer"]
+custom_minimum_size = Vector2(250, 50)
+layout_mode = 2
+text = "SWAP (Yes)"
+
+[node name="NoSwapButton" type="Button" parent="Panel/VBoxContainer"]
+custom_minimum_size = Vector2(250, 50)
+layout_mode = 2
+text = "DON'T SWAP (No)"

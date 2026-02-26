@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cx8yw5qmoabg"]
+
+[ext_resource type="Script" path="res://scripts/card_pile.gd" id="1_pile"]
+
+[node name="CardPile" type="Node3D"]
+script = ExtResource("1_pile")
