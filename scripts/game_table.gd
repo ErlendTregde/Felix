@@ -13,6 +13,7 @@ var card_pile_scene = preload("res://scenes/cards/card_pile.tscn")
 var viewing_ui_scene = preload("res://scenes/ui/viewing_ui.tscn")
 var turn_ui_scene = preload("res://scenes/ui/turn_ui.tscn")
 var swap_choice_ui_scene = preload("res://scenes/ui/swap_choice_ui.tscn")
+var round_end_ui_scene = preload("res://scenes/ui/round_end_ui.tscn")
 
 var player_grids: Array[PlayerGrid] = []
 var players: Array[Player] = []
@@ -24,6 +25,7 @@ var discard_pile_visual: CardPile = null
 var viewing_ui = null  # ViewingUI instance
 var turn_ui = null  # TurnUI instance
 var swap_choice_ui = null  # SwapChoiceUI instance
+var round_end_ui = null  # RoundEndUI instance
 
 # Turn system variables
 var selected_card: Card3D = null
@@ -79,6 +81,8 @@ var turn_manager: TurnManager = null
 var ability_manager: AbilityManager = null
 var bot_ai_manager: BotAIManager = null
 var match_manager: MatchManager = null
+var knock_manager: KnockManager = null
+var scoring_manager: ScoringManager = null
 
 func _ready() -> void:
 	print("=== Felix Card Game - Game Table Ready ===")
@@ -112,6 +116,14 @@ func _ready() -> void:
 	match_manager.init(self)
 	add_child(match_manager)
 	
+	knock_manager = KnockManager.new()
+	knock_manager.init(self)
+	add_child(knock_manager)
+	
+	scoring_manager = ScoringManager.new()
+	scoring_manager.init(self)
+	add_child(scoring_manager)
+	
 	# Initialize deck manager
 	deck_manager = DeckManager.new()
 	add_child(deck_manager)
@@ -136,6 +148,14 @@ func _ready() -> void:
 	add_child(swap_choice_ui)
 	swap_choice_ui.swap_chosen.connect(ability_manager._on_swap_chosen)
 	swap_choice_ui.no_swap_chosen.connect(ability_manager._on_no_swap_chosen)
+	
+	# Create round end UI
+	round_end_ui = round_end_ui_scene.instantiate()
+	add_child(round_end_ui)
+	round_end_ui.play_again_pressed.connect(_on_play_again_pressed)
+	
+	# Connect game state signals for round end
+	Events.game_state_changed.connect(_on_game_state_changed)
 	
 	# Setup players
 	setup_players(num_players)
@@ -199,9 +219,11 @@ func _input(event: InputEvent) -> void:
 			else:
 				print("Can only toggle match test mode before dealing cards")
 		
-		# Draw card (Phase 4)
+		# Draw card (Phase 4) — works in PLAYING and KNOCKED states
 		elif event.keycode == KEY_D:
-			if GameManager.current_state == GameManager.GameState.PLAYING and is_player_turn and not drawn_card and not is_drawing:
+			if (GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED) and is_player_turn and not drawn_card and not is_drawing:
+				# Hide knock buttons once player starts drawing
+				knock_manager.hide_all_buttons()
 				turn_manager.handle_draw_card()
 
 func setup_card_piles() -> void:
@@ -268,6 +290,9 @@ func setup_players(count: int) -> void:
 	
 	# Create debug seat markers
 	view_helper.create_seat_markers()
+
+	# Create 3D knock buttons (one per player grid)
+	knock_manager.create_buttons()
 	
 	print("\n%d player(s) ready!" % num_players)
 
@@ -309,8 +334,8 @@ func _on_card_clicked(card: Card3D) -> void:
 		match_manager.handle_give_card_selection(card)
 		return
 	
-	# During gameplay, handle card selection
-	if GameManager.current_state == GameManager.GameState.PLAYING:
+	# During gameplay (PLAYING or KNOCKED), handle card selection
+	if GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED:
 		turn_manager.handle_card_selection(card)
 		return
 	
@@ -353,9 +378,12 @@ func _on_draw_pile_clicked(_pile: CardPile) -> void:
 		print("Already drew a card!")
 		return
 	
-	if GameManager.current_state != GameManager.GameState.PLAYING:
+	if GameManager.current_state != GameManager.GameState.PLAYING and GameManager.current_state != GameManager.GameState.KNOCKED:
 		print("Cannot draw now!")
 		return
+	
+	# Hide knock buttons once player starts drawing
+	knock_manager.hide_all_buttons()
 	
 	# Disable draw pile interaction
 	if draw_pile_visual:
@@ -374,3 +402,94 @@ func _find_card_owner_idx(card: Card3D) -> int:
 			if pc == card:
 				return i
 	return -1
+
+# ======================================
+# PHASE 8: KNOCKING & SCORING
+# ======================================
+
+# _on_knock_pressed removed — 3D buttons go through knock_manager._on_button_pressed()
+
+func _on_game_state_changed(state_name: String) -> void:
+	"""React to game state changes — trigger round end flow."""
+	if state_name == "ROUND_END":
+		_handle_round_end()
+
+func _handle_round_end() -> void:
+	"""Execute the full round-end sequence: reveal, score, show UI."""
+	# Hide turn UI and knock buttons
+	if turn_ui:
+		turn_ui.hide_ui()
+	knock_manager.hide_all_buttons()
+	
+	await scoring_manager.execute_round_end()
+	
+	# Show round end UI
+	var summary = scoring_manager.get_score_summary()
+	var scores = scoring_manager.calculate_all_scores()
+	var winner_id = scoring_manager.determine_winner(scores)
+	var knocker_name = ""
+	if GameManager.knocker_id >= 0 and GameManager.knocker_id < players.size():
+		knocker_name = players[GameManager.knocker_id].player_name
+	if round_end_ui:
+		round_end_ui.show_results(summary, winner_id, knocker_name)
+
+func _on_play_again_pressed() -> void:
+	"""Start a new round — reset everything and re-deal."""
+	print("\n=== Starting New Round ===")
+	
+	# Reset game state
+	GameManager.knocker_id = -1
+	GameManager.current_player_index = 0
+	GameManager.change_state(GameManager.GameState.SETUP)
+	
+	# Clear cards from grids (main + penalty)
+	for grid in player_grids:
+		grid.clear_grid()
+		# Also clear penalty cards
+		for pc in grid.penalty_cards.duplicate():
+			if is_instance_valid(pc):
+				pc.queue_free()
+		grid.penalty_cards.clear()
+		# Clear penalty placeholders
+		for ph in grid.penalty_placeholders:
+			if is_instance_valid(ph):
+				ph.queue_free()
+		grid.penalty_placeholders.clear()
+	
+	# Reset player states (keep total_score)
+	for player in players:
+		player.has_knocked = false
+		player.is_ready = false
+		player.current_score = 0
+	
+	# Reset deck
+	deck_manager.reset_deck()
+	
+	# Reset bot knock counter
+	if bot_ai_manager:
+		bot_ai_manager.reset_turn_count()
+
+	# Hide any lingering knock buttons
+	knock_manager.hide_all_buttons()
+	
+	# Update pile visuals
+	if draw_pile_visual:
+		draw_pile_visual.set_count(deck_manager.get_draw_pile_count())
+	if discard_pile_visual:
+		discard_pile_visual.set_count(0)
+		discard_pile_visual.set_top_card(null)
+	
+	# Reset table state
+	selected_card = null
+	drawn_card = null
+	is_player_turn = false
+	is_drawing = false
+	is_dealing = false
+	is_executing_ability = false
+	is_processing_match = false
+	is_choosing_give_card = false
+	match_claimed = false
+	give_card_needs_turn_start = false
+	
+	# Start dealing
+	dealing_manager.deal_cards_to_all_players()

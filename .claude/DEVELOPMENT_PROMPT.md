@@ -222,17 +222,25 @@ When a card is placed face-up on the discard pile, players can immediately:
 - **Bot abilities work with penalty cards** — look own, look opponent, blind swap, look and swap all pick from full card pool
 - **Helper functions** — `_get_all_cards(grid)`, `_get_card_return_position(grid, card)`, `_pick_random_card(grid)`
 
-**Phase 7: Knocking and Scoring**
+**Phase 7: Knocking and Scoring** — SKIPPED (renumbered to Phase 8)
+
+**Phase 8: Knocking and Scoring** ✅ COMPLETE
 - **Knocking:** Any player (human or bot) may knock on their turn instead of drawing — knocking IS the turn (no card drawn)
 - **Final round:** After a player knocks, every OTHER player gets exactly one more normal turn in order
-- **Round end:** When the turn comes back to the knocker, all cards are immediately revealed
-- **Scoring:** Each player sums the values of all their cards (main grid + penalty cards); special values apply (Black King = −1, Red King = +25, Joker = 1)
+- **Round end:** When the turn comes back to the knocker, all cards are immediately revealed (staggered flip animation)
+- **Scoring:** Each player sums the values of all their cards (main grid + penalty cards); Black King = −1, Red King = +25, Joker = 1
 - **Winner:** Player with the LOWEST total score wins the round
 - **Matching during final round:** Fast-reaction matching remains active throughout the final round
-- Round end screen / winner announcement
-- Multi-round score tracking
+- **Round end screen** — Shows scores per player (round + total), winner, Play Again button
+- **Multi-round score tracking** — total_score persists across rounds
+- **Knock UI** — Circular KNOCK button appears on human player's turn (PLAYING state only)
+- **Bot knock AI** — Very low random chance (1% base + 0.5%/turn), reset on new round
+- **KnockManager** (`scripts/knock_manager.gd`) — Knock action, final round, round-end reveal
+- **ScoringManager** (`scripts/scoring_manager.gd`) — Score calculation, winner, multi-round
+- **KnockUI** (`scripts/knock_ui.gd` + `scenes/ui/knock_ui.tscn`)
+- **RoundEndUI** (`scripts/round_end_ui.gd` + `scenes/ui/round_end_ui.tscn`)
 
-**Phase 8: Visual Polish & Juice**
+**Phase 9: Visual Polish & Juice**
 - Particle effects (reveals, matches, abilities)
 - Screen shake (knocking, penalties, matches)
 - Smooth animation polish
@@ -429,12 +437,14 @@ felix/
 - Penalty system
 - Test: Matching works
 
-**Phase 8: Knocking & Scoring**
-- Knock button
-- Final round logic
-- Score calculation
-- Round end screen
-- Test: Complete round playthrough
+**Phase 8: Knocking & Scoring** ✅ COMPLETE
+- Knock button (circular KNOCK UI)
+- Final round logic (GameManager tracks remaining turns)
+- Score calculation (main grid + penalty; special cards)
+- Round end screen (scores, winner, Play Again)
+- Multi-round score tracking
+- Bot knock AI (very low random chance)
+- Test: Complete round playthrough ✅
 
 **Phase 9: Polish & Juice**
 - Add particle effects
@@ -638,6 +648,6 @@ Before moving to next feature, verify:
 
 ---
 
-**Last Updated**: Phase 6 Complete + Code Refactoring + Bot AI Overhaul  
-**Current Phase**: Phase 6 Complete — Ready for Phase 7 (Knocking and Scoring)  
-**Progress**: ~80% of full game implemented
+**Last Updated**: Phase 8 Complete — Phase 9 Skipped  
+**Current Phase**: Phase 10 — 3D Characters, Environment & First-Person Camera  
+**Progress**: ~85% of core game implemented, starting visual overhaul

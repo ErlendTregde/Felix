@@ -1,6 +1,6 @@
 # 🎴 Felix Card Game - Implementation Summary
 
-## ✨ Phases 0–6 Complete - Full Matching System + Code Refactoring!
+## ✨ Phases 0–8 Complete - Full Matching System + Knocking & Scoring!
 
 ### 🎯 What's Been Built
 
@@ -81,9 +81,13 @@ scripts/
 ├── ability_manager.gd   # Human ability flows (7/8, 9/10, Jack, Queen)
 ├── bot_ai_manager.gd    # Bot turn logic + ability decisions
 ├── match_manager.gd     # Fast reaction matching system
+├── knock_manager.gd     # Knock action + round-end reveal
+├── scoring_manager.gd   # Score calculation + multi-round tracking
 ├── viewing_ui.gd        # Viewing phase UI
 ├── turn_ui.gd           # Turn indicator UI
 ├── swap_choice_ui.gd    # Queen ability swap choice UI
+├── knock_ui.gd          # Knock button UI
+├── round_end_ui.gd      # Round end scores UI
 └── camera_controller.gd # Camera effects
 
 autoloads/
@@ -310,30 +314,40 @@ Spawned card 1: 7♥ at (-0.8, 0, -0.5)
 - ✅ All 4 bot ability functions pick from full card pool (main + penalty): look own, look opponent, blind swap, look and swap
 - ✅ Helper functions: `_get_all_cards(grid)`, `_get_card_return_position(grid, card)`, `_pick_random_card(grid)`
 - ✅ Cards return to correct position after bot abilities (works for main-grid and penalty slot positions)
-### 🚀 Next Steps (Phase 7)
+
+**Phase 8: Knocking & Scoring** ✅ COMPLETE
+- ✅ **KnockManager** (`scripts/knock_manager.gd`) — Handles knock action, final round tracking, round-end card reveal
+- ✅ **ScoringManager** (`scripts/scoring_manager.gd`) — Score calculation, winner determination, multi-round tracking
+- ✅ **KnockUI** (`scripts/knock_ui.gd` + `scenes/ui/knock_ui.tscn`) — Circular "KNOCK" button on human turn
+- ✅ **RoundEndUI** (`scripts/round_end_ui.gd` + `scenes/ui/round_end_ui.tscn`) — Scores, winner, Play Again button
+- ✅ **GameManager updates** — `player_knock()` builds final-turn list, `consume_final_turn()`, `is_final_round_over()`
+- ✅ **TurnManager updates** — Shows knock UI in PLAYING state, hides during KNOCKED; round-end detection via `GameManager.next_turn()`
+- ✅ **BotAIManager updates** — Very low random knock chance (1% base + 0.5%/turn), `reset_turn_count()` on new round
+- ✅ **TurnUI updates** — "[FINAL ROUND]" prefix during knocked state
+- ✅ **Round-end reveal** — Staggered flip animation (all cards face-up with 0.15s delay per card)
+- ✅ **Play Again flow** — Clears grids + penalty cards, resets deck, re-deals
+
+### 🚀 Next Steps (Phase 9)
 
 **Immediate priorities:**
-1. **Knocking mechanic** — player knocks instead of drawing (uses entire turn)
-2. **Final round logic** — after knock, all other players get one more normal turn
-3. **Round end reveal** — all cards flipped face-up when turn returns to knocker
-4. **Scoring** — sum all card values per player (main grid + penalty cards)
-5. **Winner determination** — lowest score wins
-6. **Round end screen** — display scores and winner
+1. **Particle effects** — Reveals, matches, abilities
+2. **Screen shake** — Knocking, penalties, matches
+3. **Smooth animation polish** — Card movement, transitions
+4. **Visual feedback enhancement** — Celebration effects
+5. **Sound effect hooks** — Integration points for audio
 
-**Code to write:**
-- Knock action in `turn_manager.gd` (replaces draw)
-- Final round state tracking in `game_table.gd`
-- Score calculation in `player.gd` or new `scoring_manager.gd`
-- Round end UI
+### 🎯 Success Criteria for Phase 8 ✅ MET
 
-### 🎯 Success Criteria for Phase 7
-
-When Phase 7 is complete, you should be able to:
-- [ ] Press a button to knock on your turn instead of drawing
-- [ ] All other players take one more turn after a knock
-- [ ] Cards are revealed when round ends
-- [ ] Scores are correctly calculated and displayed
-- [ ] Lowest score wins the round
+Phase 8 is fully implemented:
+- [x] Knock button appears on human player's turn
+- [x] Clicking KNOCK ends your turn without drawing
+- [x] All other players take one more turn after a knock
+- [x] All cards flip face-up when round ends
+- [x] Scores correctly calculated (main grid + penalty; special card values)
+- [x] Round-end UI shows scores and winner
+- [x] Play Again button resets and starts new round
+- [x] Bot AI can knock (very low chance)
+- [x] Matching works during final round
 
 ### 🎯 Success Criteria for Phase 6 ✅ MET
 
@@ -371,17 +385,16 @@ Phase 6 is fully implemented:
 ### 🐛 Known Limitations
 
 **Current state:**
-- Only 1 player spawned (test environment)
-- No gameplay loop yet
 - Placeholder materials (solid colors)
-- No UI elements
-- No sound
+- No sound effects
+- No particle effects
+- Bot AI does not perform fast-reaction matching
+- Bot AI is random (no memory/strategy)
 
 **Intentional limitations (will be addressed in later phases):**
-- Abilities not implemented (Phase 5)
-- Fast reactions not implemented (Phase 6)
-- Scoring not implemented (Phase 7)
-- Multi-round not implemented (Phase 10)
+- Visual polish not implemented (Phase 9)
+- Low-poly 3D assets not implemented (Phase 10)
+- Menu system not implemented (Phase 11)
 
 ### 📚 Code Examples
 
@@ -431,26 +444,29 @@ func _on_card_flipped(card: Card3D, is_face_up: bool):
 
 ## 🎉 Conclusion
 
-**Phases 0–6 are complete!** The foundation is solid, all special abilities are implemented, and the full fast-reaction matching system (including penalty cards, give-card selection, and all bug fixes) is working.
+**Phases 0–8 are complete!** The foundation is solid, all special abilities are implemented, the full fast-reaction matching system is working, and knocking & scoring complete the core gameplay loop.
 
 **What works:**
 ✅ Full dealing and turn system  
 ✅ All four special abilities  
-✅ Bot AI (turns + abilities + penalty card awareness)  
+✅ Bot AI (turns + abilities + penalty card awareness + knock)  
 ✅ Color-coded pulsing highlights  
 ✅ Card rotation correct after swaps  
 ✅ Neighbor restriction enforced  
 ✅ Right-click matching (always active)  
 ✅ Penalty card system (8 slots + overflow stacking)  
 ✅ Give-card selection after opponent match  
-✅ All Phase 6 bug fixes applied  
-✅ game_table.gd refactored into 7 manager scripts  
-✅ Bot AI overhauled (penalty cards, ability fallback)  
+✅ game_table.gd refactored into 9 manager scripts  
+✅ Knocking & final round system  
+✅ Score calculation (main grid + penalty; special cards)  
+✅ Round-end reveal with staggered animation  
+✅ Round-end UI with scores and Play Again  
+✅ Multi-round score tracking  
 
-**Next milestone:** Phase 7 — Knocking and Scoring
+**Next milestone:** Phase 9 — Visual Polish & Juice
 
 ---
 
 **Built with:** Godot 4.5 (Forward Plus)  
-**Last Updated:** Phase 6 Complete + Code Refactoring + Bot AI Overhaul  
-**Status:** 🟢 **Phase 6 Complete — Ready for Phase 7**
+**Last Updated:** Phase 8 Complete (Knocking & Scoring)  
+**Status:** 🟢 **Phase 8 Complete — Ready for Phase 9**

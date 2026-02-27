@@ -19,6 +19,7 @@
 | **Click Card** | Swap card (during turn) / View card (ability) |
 | **Right Click Card** | Match attempt against discard pile (always active) \u2b50 Phase 6 |
 | **Click Discard** | Use ability (Option A) |
+| **Click KNOCK button** | Knock instead of drawing (ends your turn) ⭐ Phase 8 |
 | **F** | Camera shake |
 | **Hover Card** | Card elevates |
 
@@ -105,15 +106,22 @@ felix/
 - ✅ **Penalty card ownership** (explicit assignment + defensive fallback)
 - ✅ **game_table.gd refactored into 7 manager scripts** (orchestrator pattern + init(table))
 - ✅ **Bot AI overhauled** (penalty card awareness, all-slots search, ability fallback)
+- ✅ **Knock action** (human click KNOCK button; bot random knock with low chance)
+- ✅ **Final round** (all non-knockers get one more normal turn)
+- ✅ **Round-end card reveal** (staggered flip animation)
+- ✅ **Scoring** (main grid + penalty; Black King = −1, Red King = +25, Joker = 1)
+- ✅ **Round end UI** (scores, winner, Play Again button)
+- ✅ **Multi-round score tracking** (total_score persists across rounds)
+- ✅ **Bot knock AI** (very low random chance, increases each turn)
+- ✅ **KnockManager + ScoringManager** (clean separate scripts)
 
-## 📝 Next Phase (Phase 7 — Knocking and Scoring)
-- [ ] Knock action — player knocks instead of drawing (uses entire turn)
-- [ ] Final round — all other players get one more normal turn after a knock
-- [ ] Round end reveal — all cards flipped face-up when turn returns to knocker
-- [ ] Scoring — sum all card values; lowest score wins
-- [ ] Round end screen / winner announcement
-- [ ] Matching still active during final round
-- [ ] Multi-round score tracking
+## 📝 Next Phase (Phase 9 — Visual Polish & Juice)
+- [ ] Particle effects (reveals, matches, abilities)
+- [ ] Screen shake (knocking, penalties, matches)
+- [ ] Smooth animation polish
+- [ ] Visual feedback enhancement
+- [ ] Celebration effects
+- [ ] Sound effect hooks
 
 ## 🐛 Debug Tips
 - Check **Output** panel for console logs
@@ -167,4 +175,4 @@ print(card.card_data.get_score())       # 7
 
 ---
 
-**Status:** Phase 6 Complete + Code Refactoring + Bot AI Overhaul | **Next:** Phase 7 — Knocking and Scoring
+**Status:** Phase 8 Complete (Knocking & Scoring) | **Next:** Phase 9 — Visual Polish & Juice

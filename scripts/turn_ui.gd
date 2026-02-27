@@ -12,14 +12,23 @@ func _ready() -> void:
 
 func show_turn(player_id: int, player_name: String, is_player_turn: bool) -> void:
 	"""Show whose turn it is"""
-	player_label.text = "%s's Turn" % player_name
+	var is_final_round = GameManager.is_final_round()
+	var prefix = "[FINAL ROUND] " if is_final_round else ""
+	
+	player_label.text = "%s%s's Turn" % [prefix, player_name]
 	
 	if is_player_turn:
 		action_label.text = "Your Turn!"
-		instruction_label.text = "Click draw pile to draw a card"
+		if is_final_round:
+			instruction_label.text = "Final turn — draw and swap!"
+		else:
+			instruction_label.text = "Click draw pile to draw a card"
 	else:
 		action_label.text = "Opponent Playing..."
-		instruction_label.text = ""
+		if is_final_round:
+			instruction_label.text = "Final round in progress..."
+		else:
+			instruction_label.text = ""
 	
 	turn_panel.show()
 

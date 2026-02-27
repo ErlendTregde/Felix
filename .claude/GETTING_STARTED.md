@@ -224,6 +224,6 @@ This is an active development project. Key areas for contribution:
 
 ---
 
-**Project Version:** Phase 5 Complete + Bug Fixes + Polish  
+**Project Version:** Phase 8 Complete (Knocking & Scoring)  
 **Engine:** Godot 4.5 (Forward Plus)  
-**Last Updated:** February 19, 2026
+**Last Updated:** February 27, 2026

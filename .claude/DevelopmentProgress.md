@@ -3,7 +3,7 @@
 ## 🎴 Project Overview
 A strategic 3D memory card game for 2-4 players built in Godot 4.5, featuring low-poly aesthetics with juicy game feel.
 
-## ✅ Completed (Phase 0-6)
+## ✅ Completed (Phase 0-8)
 
 ### Core Architecture
 - ✅ **Event Bus System** ([autoloads/events.gd](autoloads/events.gd)) - Global signal system for decoupled communication
@@ -27,6 +27,8 @@ A strategic 3D memory card game for 2-4 players built in Godot 4.5, featuring lo
 - ✅ **AbilityManager** ([scripts/ability_manager.gd](scripts/ability_manager.gd)) - All 4 human ability flows
 - ✅ **BotAIManager** ([scripts/bot_ai_manager.gd](scripts/bot_ai_manager.gd)) - Bot turn logic, ability decisions, penalty card support
 - ✅ **MatchManager** ([scripts/match_manager.gd](scripts/match_manager.gd)) - Fast reaction matching, give-card, penalty system
+- ✅ **KnockManager** ([scripts/knock_manager.gd](scripts/knock_manager.gd)) - Knock action, final round tracking, round-end card reveal
+- ✅ **ScoringManager** ([scripts/scoring_manager.gd](scripts/scoring_manager.gd)) - Score calculation, winner determination, multi-round tracking
 
 ### Player Grid System (Phase 2)
 - ✅ **PlayerGrid Scene** ([scenes/players/player_grid.tscn](scenes/players/player_grid.tscn)) - Reusable 2×2 card grid
@@ -246,21 +248,27 @@ Dealing complete! All players have 4 cards.
 ### Phase 6 Complete! ✅
 All fast-reaction matching mechanics fully implemented and bug-fixed.
 
-### Upcoming Phases
-- **Phase 7:** Knocking and scoring
-- **Phase 8:** Visual polish and juice
-- **Phase 9:** Low-poly 3D assets
-- **Phase 10:** Menu and multi-round system
+### Phase 8 Complete! ✅ (Knocking & Scoring)
+- ✅ **Knock UI** — Circular "KNOCK" button appears on human player's turn
+- ✅ **Knock Action** — Player/bot knocks instead of drawing (entire turn consumed)
+- ✅ **Final Round Tracking** — GameManager tracks remaining final turns per player
+- ✅ **Final Round Turns** — All non-knocker players get exactly one more normal turn
+- ✅ **Round End Reveal** — All cards flip face-up with staggered animation when final round ends
+- ✅ **Scoring** — Sum all card values (main grid + penalty); Black King = −1, Red King = +25, Joker = 1
+- ✅ **Winner Determination** — Lowest score wins the round
+- ✅ **Round End UI** — Shows scores per player (round + total), winner announcement, "Play Again" button
+- ✅ **Multi-Round Score Tracking** — Total scores persist across rounds
+- ✅ **Bot Knock AI** — Very low random chance to knock, increasing slightly each turn
+- ✅ **Matching During Final Round** — Fast-reaction matching remains fully active
+- ✅ **Turn UI Updates** — "[FINAL ROUND]" prefix shown during knocked state
+- ✅ **Play Again** — Resets deck, grids, penalty cards, bot counter; re-deals cards
+- ✅ **Clean Architecture** — KnockManager + ScoringManager as separate Node scripts (follows existing pattern)
 
-### Phase 7: Knocking and Scoring (Next)
-- **Knocking:** Any player or bot may knock on their turn instead of drawing (knocking IS the turn — no card drawn)
-- **Final Round:** After a knock, all other players get exactly one more normal turn
-- **Round End:** When the turn returns to the knocker, all cards are revealed immediately
-- **Scoring:** Sum all card values per player (main grid + penalty cards); Black King = −1, Red King = +25, Joker = 1
-- **Winner:** Player with the LOWEST total score wins the round
-- **Matching During Final Round:** Fast-reaction matching remains active throughout the final round
-- Round end screen / winner announcement
-- Multi-round score tracking
+### Upcoming Phases
+- **Phase 9:** SKIPPED (polish will be done during/after Phase 10)
+- **Phase 10:** 3D Characters, Environment & First-Person Camera (see [PHASE_10_3D_ASSETS.md](PHASE_10_3D_ASSETS.md))
+- **Phase 11:** Menu and multi-round system
+- **Future:** Multiplayer support
 
 ## 🏗️ Project Structure
 ```
@@ -281,11 +289,15 @@ felix/
 │   ├── viewing_phase_manager.gd # ⭐ Initial viewing phase
 │   ├── turn_manager.gd       # ⭐ Turn flow, draw, swap, reshuffle
 │   ├── ability_manager.gd    # ⭐ Human ability flows
-│   ├── bot_ai_manager.gd     # ⭐ Bot AI + penalty card support
+│   ├── bot_ai_manager.gd     # ⭐ Bot AI + penalty card support + knock
 │   ├── match_manager.gd      # ⭐ Fast reaction matching
+│   ├── knock_manager.gd      # ⭐ Knock action + round-end reveal
+│   ├── scoring_manager.gd    # ⭐ Score calculation + multi-round
 │   ├── viewing_ui.gd   # Viewing phase UI
 │   ├── turn_ui.gd      # Turn indicator UI
 │   ├── swap_choice_ui.gd # Queen ability UI
+│   ├── knock_ui.gd     # Knock button UI
+│   ├── round_end_ui.gd # Round end scores UI
 │   └── camera_controller.gd
 ├── scenes/
 │   ├── main/
@@ -299,7 +311,9 @@ felix/
 │   └── ui/
 │       ├── viewing_ui.tscn      # Viewing phase UI
 │       ├── turn_ui.tscn         # Turn indicator
-│       └── swap_choice_ui.tscn  # Queen ability UI
+│       ├── swap_choice_ui.tscn  # Queen ability UI
+│       ├── knock_ui.tscn        # Knock button UI
+│       └── round_end_ui.tscn    # Round end scores UI
 ├── resources/
 │   └── materials/      # Card materials
 └── project.godot       # Autoloads configured
@@ -352,19 +366,18 @@ felix/
 
 ## 🐛 Known Issues & Future Work
 
-### All Current Features Working!
-Phase 5 is complete. Ready for Phase 6!
+### All Core Gameplay Working!
+Phases 0–8 are complete. The full gameplay loop is functional.
+
+### Recent Fixes
+- ✅ `!is_inside_tree()` errors fixed in `knock_manager.gd` (add_child before global_position)
+- ✅ Round-end card reveal now starts from the knocker
+- ✅ Camera shake removed from knock action
 
 ### Future Phases
-- **Phase 6:** Fast reaction matching system
-  - Drag-and-drop card matching (always active)
-  - Match own cards or opponent cards against discard pile top card
-  - Penalty system with dynamic grid expansion
-  - Visual feedback for successful/failed matches
-- **Phase 7:** Knocking and scoring
-- **Phase 8:** Visual polish and juice
-- **Phase 9:** Low-poly 3D assets
-- **Phase 10:** Menu and multi-round system
+- **Phase 9:** Visual polish and juice (particles, screen shake, animation polish)
+- **Phase 10:** Low-poly 3D assets
+- **Phase 11:** Menu and multi-round system
 
 ## 📝 Notes
 - All scripts follow Godot best practices (composition over inheritance)
@@ -441,5 +454,5 @@ Phase 5 is complete. Ready for Phase 6!
 
 ---
 
-**Last Updated:** Phase 6 Complete + Code Refactoring + Bot AI Overhaul  
-**Next Milestone:** Phase 7 — Knocking and Scoring
+**Last Updated:** Phase 8 Complete — Starting Phase 10
+**Next Milestone:** Phase 10A — Primitive Blockout & First-Person Camera

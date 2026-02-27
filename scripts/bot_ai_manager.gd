@@ -4,8 +4,17 @@ class_name BotAIManager
 
 var table  # Reference to game_table
 
+# Knock probability: starts very low, increases each turn
+var _turn_count: int = 0
+const KNOCK_BASE_CHANCE: float = 0.01  # 1% base
+const KNOCK_INCREMENT: float = 0.005   # +0.5% per turn (very slow ramp)
+
 func init(game_table) -> void:
 	table = game_table
+
+func reset_turn_count() -> void:
+	"""Reset the knock probability counter for a new round."""
+	_turn_count = 0
 
 # ======================================
 # HELPERS
@@ -52,6 +61,26 @@ func _pick_random_card(grid: PlayerGrid) -> Card3D:
 func execute_bot_turn(bot_id: int) -> void:
 	"""Execute a bot turn with ability decision logic"""
 	print("Bot %d executing turn..." % (bot_id + 1))
+	_turn_count += 1
+	
+	# === KNOCK DECISION (only in PLAYING state, not during final round) ===
+	if GameManager.current_state == GameManager.GameState.PLAYING:
+		var knock_chance = KNOCK_BASE_CHANCE + (KNOCK_INCREMENT * _turn_count)
+		if randf() < knock_chance:
+			print("Bot %d decides to KNOCK! (chance was %.1f%%)" % [bot_id + 1, knock_chance * 100.0])
+			# Show the bot's 3D knock button and simulate a press for visual effect
+			var btn = table.knock_manager.get_button(bot_id)
+			if btn:
+				btn.show_button()
+				await get_tree().create_timer(0.4).timeout
+				btn.simulate_press()
+			else:
+				# Fallback: no button found, knock directly
+				table.knock_manager.perform_knock(bot_id)
+			return
+
+	# Hide knock buttons once the bot starts drawing (if visible)
+	table.knock_manager.hide_all_buttons()
 	
 	# Bot draws a card
 	table.drawn_card = await table.turn_manager.draw_card_from_pile()

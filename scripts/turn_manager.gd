@@ -20,10 +20,17 @@ func start_next_turn() -> void:
 		print("Error: No current player!")
 		return
 	
+	# If game state is ROUND_END, don't start a new turn
+	if GameManager.current_state == GameManager.GameState.ROUND_END:
+		return
+	
 	# Lock out all input immediately so nothing fires during the reshuffle animation
 	table.is_player_turn = false
 	if table.draw_pile_visual:
 		table.draw_pile_visual.set_interactive(false)
+	
+	# Hide knock buttons by default (shown explicitly for human turns in PLAYING state)
+	table.knock_manager.hide_all_buttons()
 	
 	# If draw pile is empty, perform the reshuffle WITH animation BEFORE the turn begins
 	if table.deck_manager.can_reshuffle():
@@ -81,13 +88,23 @@ func start_next_turn() -> void:
 	if table.is_player_turn:
 		# Human player's turn - wait for input
 		print("Your turn! Press D to draw a card")
-		table.turn_ui.update_action("Press D to draw a card or click draw pile")
+		
+		# Show knock button only in PLAYING state (not during final round after someone knocked)
+		if GameManager.current_state == GameManager.GameState.PLAYING:
+			table.turn_ui.update_action("Press D to draw a card, click draw pile, or KNOCK")
+			table.knock_manager.show_button_for(0)  # Player 0 = human
+		else:
+			table.turn_ui.update_action("Press D to draw a card or click draw pile")
+		
 		# Enable draw pile interaction for human player
 		if table.draw_pile_visual:
 			table.draw_pile_visual.set_interactive(true)
 	else:
 		# Bot turn - auto-play
 		print("%s (Bot) is thinking..." % current_player.player_name)
+		# Show knock button for the bot in PLAYING state (bot_ai will simulate_press if it decides to knock)
+		if GameManager.current_state == GameManager.GameState.PLAYING:
+			table.knock_manager.show_button_for(current_player_id)
 		# Disable draw pile for bots
 		if table.draw_pile_visual:
 			table.draw_pile_visual.set_interactive(false)
@@ -427,8 +444,15 @@ func end_current_turn() -> void:
 	if table.discard_pile_visual:
 		table.discard_pile_visual.set_interactive(false)
 	
-	# Move to next turn
+	# Hide knock buttons
+	table.knock_manager.hide_all_buttons()
+	
+	# Move to next turn (GameManager.next_turn handles KNOCKED → ROUND_END transition)
 	GameManager.next_turn()
+	
+	# If round ended, don't start a new turn (the state change callback handles it)
+	if GameManager.current_state == GameManager.GameState.ROUND_END:
+		return
 	
 	await get_tree().create_timer(0.5).timeout
 	start_next_turn()

@@ -107,13 +107,15 @@ func next_turn() -> void:
 	var player_id = players[current_player_index].player_id if players.size() > current_player_index else 0
 	Events.turn_ended.emit(player_id)
 	
-	current_player_index = get_next_player_clockwise(current_player_index)
+	# If we are in the KNOCKED state, consume the final turn and check completion
+	if current_state == GameState.KNOCKED:
+		consume_final_turn(current_player_index)
+		if is_final_round_over():
+			change_state(GameState.ROUND_END)
+			return
 	
-	# Check if we've completed final turns after knock
-	if current_state == GameState.KNOCKED and current_player_index == (knocker_id % player_count):
-		change_state(GameState.ROUND_END)
-	else:
-		start_turn()
+	current_player_index = get_next_player_clockwise(current_player_index)
+	start_turn()
 
 func get_next_player_clockwise(current: int) -> int:
 	"""Get the next player index in clockwise order"""
@@ -149,9 +151,31 @@ func player_knock(player_id: int) -> void:
 		return
 	
 	knocker_id = player_id
+	# Track which players still need their final turn
+	_final_round_remaining.clear()
+	var idx = get_next_player_clockwise(player_id)
+	while idx != player_id:
+		_final_round_remaining.append(idx)
+		idx = get_next_player_clockwise(idx)
+	
 	Events.player_knocked.emit(player_id)
+	Events.knock_announced.emit(player_id)
 	change_state(GameState.KNOCKED)
-	next_turn()  # Move to next player for final turns
+
+func is_final_round() -> bool:
+	"""True while we are in KNOCKED state (final round in progress)"""
+	return current_state == GameState.KNOCKED
+
+func consume_final_turn(player_id: int) -> void:
+	"""Mark a player's final turn as used. When list empty → round end."""
+	_final_round_remaining.erase(player_id)
+
+func is_final_round_over() -> bool:
+	"""True when every non-knocker has had their final turn"""
+	return current_state == GameState.KNOCKED and _final_round_remaining.is_empty()
+
+# Internal list of player indices that still owe a final turn
+var _final_round_remaining: Array[int] = []
 
 func get_current_player() -> Node:
 	"""Get the current player node"""

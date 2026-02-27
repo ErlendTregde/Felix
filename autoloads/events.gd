@@ -53,6 +53,18 @@ signal match_failed(player_id: int)
 @warning_ignore("unused_signal")
 signal penalty_card_added(player_id: int)
 
+# Knock & scoring signals
+@warning_ignore("unused_signal")
+signal knock_announced(player_id: int)
+@warning_ignore("unused_signal")
+signal final_round_started
+@warning_ignore("unused_signal")
+signal all_cards_revealed
+@warning_ignore("unused_signal")
+signal round_scores_calculated(scores: Dictionary, winner_id: int)
+@warning_ignore("unused_signal")
+signal new_round_requested
+
 # UI signals
 @warning_ignore("unused_signal")
 signal score_updated(player_id: int, new_score: int)
