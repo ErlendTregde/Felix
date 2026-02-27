@@ -3,7 +3,7 @@
 ## 🎴 Project Overview
 A strategic 3D memory card game for 2-4 players built in Godot 4.5, featuring low-poly aesthetics with juicy game feel.
 
-## ✅ Completed (Phase 0-5)
+## ✅ Completed (Phase 0-6)
 
 ### Core Architecture
 - ✅ **Event Bus System** ([autoloads/events.gd](autoloads/events.gd)) - Global signal system for decoupled communication
@@ -17,7 +17,16 @@ A strategic 3D memory card game for 2-4 players built in Godot 4.5, featuring lo
 - ✅ **Card3D Script** ([scripts/card_3d.gd](scripts/card_3d.gd)) - Interaction, animation, highlighting
 - ✅ **Camera Controller** ([scenes/main/camera_controller.tscn](scenes/main/camera_controller.tscn)) - Fixed perspective with shake
 - ✅ **Game Table Scene** ([scenes/main/game_table.tscn](scenes/main/game_table.tscn)) - Main playfield with position markers
-- ✅ **Game Table Script** ([scripts/game_table.gd](scripts/game_table.gd)) - Multi-player game controller
+- ✅ **Game Table Script** ([scripts/game_table.gd](scripts/game_table.gd)) - Main orchestrator (input, setup, dispatch)
+
+### Manager Scripts (Refactored from game_table.gd)
+- ✅ **CardViewHelper** ([scripts/card_view_helper.gd](scripts/card_view_helper.gd)) - View positions, rotations, neighbor lookups, seat markers
+- ✅ **DealingManager** ([scripts/dealing_manager.gd](scripts/dealing_manager.gd)) - Card dealing with staggered animation
+- ✅ **ViewingPhaseManager** ([scripts/viewing_phase_manager.gd](scripts/viewing_phase_manager.gd)) - Initial viewing phase (bottom 2 cards, ready system)
+- ✅ **TurnManager** ([scripts/turn_manager.gd](scripts/turn_manager.gd)) - Turn flow, drawing, swapping, discard, pile reshuffling
+- ✅ **AbilityManager** ([scripts/ability_manager.gd](scripts/ability_manager.gd)) - All 4 human ability flows
+- ✅ **BotAIManager** ([scripts/bot_ai_manager.gd](scripts/bot_ai_manager.gd)) - Bot turn logic, ability decisions, penalty card support
+- ✅ **MatchManager** ([scripts/match_manager.gd](scripts/match_manager.gd)) - Fast reaction matching, give-card, penalty system
 
 ### Player Grid System (Phase 2)
 - ✅ **PlayerGrid Scene** ([scenes/players/player_grid.tscn](scenes/players/player_grid.tscn)) - Reusable 2×2 card grid
@@ -166,6 +175,7 @@ A strategic 3D memory card game for 2-4 players built in Godot 4.5, featuring lo
 - **1/2/3/4** - Change player count (1-4 players)
 - **ENTER** - Deal 4 cards to each player (with animation!)
 - **T** - Toggle test mode (deck with only 7/8/9/10/Jack/Queen ability cards)
+- **Y** - Toggle match test mode (deck with only 7s and 8s)
 
 **Viewing Phase:**
 - **Ready Button** - Click to mark yourself ready
@@ -173,7 +183,8 @@ A strategic 3D memory card game for 2-4 players built in Godot 4.5, featuring lo
 
 **Playing Phase (Your Turn):**
 - **D** - Draw a card from the draw pile
-- **Click a card** - Swap the clicked card with your drawn card (Option B)
+- **Left-click a card** - Swap the clicked card with your drawn card (Option B)
+- **Right-click a card** - Attempt fast-reaction match against discard pile (always active)
 - **Click discard pile** - Use ability of drawn card (Option A)
 - **SPACE** - Confirm ability viewing (after selecting target card)
 
@@ -232,27 +243,24 @@ Dealing complete! All players have 4 cards.
 
 ## 📝 Next Steps (Future Phases)
 
-### Phase 5 Complete! ✅
-All special abilities fully implemented with bot AI support.
+### Phase 6 Complete! ✅
+All fast-reaction matching mechanics fully implemented and bug-fixed.
 
 ### Upcoming Phases
-- **Phase 6:** Fast reaction matching system (drag-and-drop)
 - **Phase 7:** Knocking and scoring
 - **Phase 8:** Visual polish and juice
 - **Phase 9:** Low-poly 3D assets
 - **Phase 10:** Menu and multi-round system
 
-### Phase 6: Fast Reaction Matching System (Next)
-**Always-Active Matching** - Players can match cards at ANY time:
-- **Drag & Drop Mechanic:** Hold mouse to drag card, release over discard pile to attempt match
-- **Match Detection:** Card must match the rank/value of top discard pile card (e.g., all 7s, all Queens)
-- **Match Your Own Card:** Remove from your deck (fewer cards = good!)
-- **Match Opponent's Card (Success):** Their card discarded, you place one of YOUR cards on THEIR deck
-- **Match Opponent's Card (Fail):** Card returns, you get penalty card
-- **One Match Per Update:** Matching locks after successful match until new card placed on discard pile
-- **Penalty Card Layout:** Cards fill positions around 2×2 grid (top-left, top-right, bottom-left, bottom-right)
-- **Visual Feedback:** Card follows cursor while held, distinct error effect for wrong matches (shake, red flash)
-- **Bot AI:** Not included in Phase 6 (will implement later)
+### Phase 7: Knocking and Scoring (Next)
+- **Knocking:** Any player or bot may knock on their turn instead of drawing (knocking IS the turn — no card drawn)
+- **Final Round:** After a knock, all other players get exactly one more normal turn
+- **Round End:** When the turn returns to the knocker, all cards are revealed immediately
+- **Scoring:** Sum all card values per player (main grid + penalty cards); Black King = −1, Red King = +25, Joker = 1
+- **Winner:** Player with the LOWEST total score wins the round
+- **Matching During Final Round:** Fast-reaction matching remains active throughout the final round
+- Round end screen / winner announcement
+- Multi-round score tracking
 
 ## 🏗️ Project Structure
 ```
@@ -260,18 +268,25 @@ felix/
 ├── autoloads/          # Global singletons
 │   ├── events.gd       # Signal bus
 │   └── game_manager.gd # State machine
-├── scripts/            # Game logic
+├── scripts/            # Game logic (18 scripts)
 │   ├── card_data.gd    # Card resource class
 │   ├── card_3d.gd      # Card behavior
 │   ├── player.gd       # Player state
-│   ├── player_grid.gd  # 2×2 grid manager
+│   ├── player_grid.gd  # 2×2 grid + penalty cards
 │   ├── deck_manager.gd # Deck operations
 │   ├── card_pile.gd    # Pile visuals
-│   ├── viewing_ui.gd   # Viewing phase UI ⭐ Phase 3
-│   ├── turn_ui.gd      # Turn indicator UI ⭐ Phase 4
-│   ├── swap_choice_ui.gd # Queen ability UI ⭐ Phase 5
-│   ├── camera_controller.gd
-│   └── game_table.gd   # Main scene controller
+│   ├── game_table.gd   # Main orchestrator
+│   ├── card_view_helper.gd   # ⭐ View positions, rotations, neighbors
+│   ├── dealing_manager.gd    # ⭐ Dealing animation
+│   ├── viewing_phase_manager.gd # ⭐ Initial viewing phase
+│   ├── turn_manager.gd       # ⭐ Turn flow, draw, swap, reshuffle
+│   ├── ability_manager.gd    # ⭐ Human ability flows
+│   ├── bot_ai_manager.gd     # ⭐ Bot AI + penalty card support
+│   ├── match_manager.gd      # ⭐ Fast reaction matching
+│   ├── viewing_ui.gd   # Viewing phase UI
+│   ├── turn_ui.gd      # Turn indicator UI
+│   ├── swap_choice_ui.gd # Queen ability UI
+│   └── camera_controller.gd
 ├── scenes/
 │   ├── main/
 │   │   ├── game_table.tscn      # Main game scene
@@ -282,9 +297,9 @@ felix/
 │   ├── players/
 │   │   └── player_grid.tscn     # Grid prefab
 │   └── ui/
-│       ├── viewing_ui.tscn      # Viewing phase UI ⭐ Phase 3
-│       ├── turn_ui.tscn         # Turn indicator ⭐ Phase 4
-│       └── swap_choice_ui.tscn  # Queen ability UI ⭐ Phase 5
+│       ├── viewing_ui.tscn      # Viewing phase UI
+│       ├── turn_ui.tscn         # Turn indicator
+│       └── swap_choice_ui.tscn  # Queen ability UI
 ├── resources/
 │   └── materials/      # Card materials
 └── project.godot       # Autoloads configured
@@ -361,6 +376,23 @@ Phase 5 is complete. Ready for Phase 6!
 - Position-based animations provide immersive 3D perspective
 - Bot AI uses randomization for unpredictable but fair gameplay
 - Discard pile maintains FIFO order for strategic depth
+- **Code Refactoring (game_table.gd split):**
+  - game_table.gd was split into 7 focused manager scripts for maintainability
+  - Each manager is a standalone Node with class_name, receives `table` reference via `init(game_table)`
+  - CardViewHelper: view positions, rotations, sideways directions, seat markers, neighbor lookups
+  - DealingManager: card dealing with staggered animation
+  - ViewingPhaseManager: initial viewing phase (bottom 2 cards, ready system, bot auto-ready)
+  - TurnManager: turn flow, card drawing, swapping, discard, pile reshuffling (~506 lines)
+  - AbilityManager: all 4 human ability flows (~913 lines)
+  - BotAIManager: bot turn logic + ability decisions + penalty card awareness (~605 lines)
+  - MatchManager: fast reaction matching, give-card selection, penalty system (~404 lines)
+  - game_table.gd reduced from ~1500+ lines to ~377 lines (orchestrator only)
+- **Bot AI Overhaul:**
+  - Bot now considers ALL occupied slots (main grid + penalty cards) when choosing a swap target
+  - If no swap targets exist but drawn card has an ability, bot falls back to using the ability
+  - All 4 bot ability functions (look own, look opponent, blind swap, look and swap) pick from full card pool (main + penalty)
+  - Helper functions added: `_get_all_cards(grid)`, `_get_card_return_position(grid, card)`, `_pick_random_card(grid)`
+  - Cards return to correct position after bot abilities (works for both main-grid and penalty cards)
 - **Phase 5 Features:**
   - Test deck system for ability testing (T key toggle, 18 cards: 7/8/9/10/Jack/Queen)
   - Interactive discard pile with hover/click detection
@@ -409,5 +441,5 @@ Phase 5 is complete. Ready for Phase 6!
 
 ---
 
-**Last Updated:** Phase 5 Complete + Reshuffle Overhaul + All Bug Fixes - February 19, 2026  
-**Next Milestone:** Phase 6 - Fast Reaction Matching System
+**Last Updated:** Phase 6 Complete + Code Refactoring + Bot AI Overhaul  
+**Next Milestone:** Phase 7 — Knocking and Scoring

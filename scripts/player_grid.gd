@@ -214,16 +214,25 @@ func set_all_interactable(interactable: bool) -> void:
 # ======================================
 
 func add_penalty_card(card: Card3D, animate: bool = true) -> void:
-	"""Add a penalty card to the next available penalty slot around the grid"""
+	"""Add a penalty card to the next available penalty slot around the grid.
+	When more than 8 penalty cards are added, extras stack with a Y-offset above the last slot."""
 	var slot = penalty_cards.size()
+	var stack_height: float = 0.0
+	var is_overflow := false
 	if slot >= penalty_positions.size():
-		# All predefined slots full — stack on top of the last slot
+		# All predefined slots full — stack with Y offset above the last slot
+		stack_height = (slot - (penalty_positions.size() - 1)) * 0.025
 		slot = penalty_positions.size() - 1
+		is_overflow = true
 	
 	penalty_cards.append(card)
 	add_child(card)
 	
-	var target_local = penalty_positions[slot]
+	# Ensure ownership is set (mirrors the pattern in add_card)
+	if card.owner_player == null and has_meta("owner_player"):
+		card.owner_player = get_meta("owner_player")
+	
+	var target_local = penalty_positions[slot] + Vector3(0, stack_height, 0)
 	if animate:
 		card.move_to(to_global(target_local), 0.4, false)
 	else:
@@ -231,8 +240,9 @@ func add_penalty_card(card: Card3D, animate: bool = true) -> void:
 		card.base_position = card.global_position
 	card.rotation = Vector3.ZERO
 	
-	# Create a white outline placeholder at this slot
-	_create_penalty_placeholder(target_local)
+	# Only create a placeholder for new slots (not overflow stacked cards)
+	if not is_overflow:
+		_create_penalty_placeholder(penalty_positions[slot])
 	
 	print("Player %d received penalty card at slot %d: %s" % [
 		player_id, slot, card.card_data.get_short_name()])
@@ -253,8 +263,8 @@ func remove_penalty_card(card: Card3D) -> void:
 	if card.get_parent() == self:
 		remove_child(card)
 
-func _create_penalty_placeholder(local_pos: Vector3) -> void:
-	"""Create a white outline border at a penalty card slot (same style as main grid placeholders)"""
+func _build_penalty_placeholder(local_pos: Vector3) -> Node3D:
+	"""Build a white outline border Node3D for a penalty slot. Does NOT add to tracking array."""
 	var width := 0.75
 	var height := 1.05
 	var border := 0.03
@@ -284,7 +294,39 @@ func _create_penalty_placeholder(local_pos: Vector3) -> void:
 
 	container.position = local_pos
 	add_child(container)
-	penalty_placeholders.append(container)
+	return container
+
+func _create_penalty_placeholder(local_pos: Vector3) -> void:
+	"""Create a white outline border at a penalty card slot and append it to the tracking array."""
+	penalty_placeholders.append(_build_penalty_placeholder(local_pos))
+
+func insert_penalty_card_at(card: Card3D, slot: int, animate: bool = true) -> void:
+	"""Insert a card at a specific penalty slot index, preserving the positions of other penalty cards.
+	Use this instead of add_penalty_card when swapping so the card lands at the exact slot."""
+	slot = clampi(slot, 0, penalty_positions.size() - 1)
+
+	penalty_cards.insert(slot, card)
+	add_child(card)
+	
+	# Ensure ownership is set (mirrors the pattern in add_card)
+	if card.owner_player == null and has_meta("owner_player"):
+		card.owner_player = get_meta("owner_player")
+
+	var target_local := penalty_positions[slot]
+	if animate:
+		card.move_to(to_global(target_local), 0.4, false)
+	else:
+		card.global_position = to_global(target_local)
+		card.base_position = card.global_position
+	card.rotation = Vector3.ZERO
+
+	# Build the placeholder and insert it at the matching index so penalty_placeholders
+	# stays in sync with penalty_cards.
+	var ph := _build_penalty_placeholder(target_local)
+	penalty_placeholders.insert(slot, ph)
+
+	print("Player %d received penalty card at slot %d: %s" % [
+		player_id, slot, card.card_data.get_short_name()])
 
 func get_penalty_count() -> int:
 	"""Return number of penalty cards this player has"""

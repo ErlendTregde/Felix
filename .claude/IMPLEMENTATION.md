@@ -1,6 +1,6 @@
 # 🎴 Felix Card Game - Implementation Summary
 
-## ✨ Phases 0–5 Complete - Special Abilities Ready (+ All Polish)!
+## ✨ Phases 0–6 Complete - Full Matching System + Code Refactoring!
 
 ### 🎯 What's Been Built
 
@@ -70,9 +70,21 @@ scripts/
 ├── card_data.gd         # Resource class for card definitions
 ├── card_3d.gd           # Card behavior and animations
 ├── player.gd            # Player state management
+├── player_grid.gd       # 2×2 grid + penalty cards
 ├── deck_manager.gd      # Deck operations
-├── camera_controller.gd # Camera effects
-└── game_table.gd        # Test scene controller
+├── card_pile.gd         # Pile visuals
+├── game_table.gd        # Main orchestrator (input, setup, dispatch)
+├── card_view_helper.gd  # View positions, rotations, neighbors
+├── dealing_manager.gd   # Card dealing with animation
+├── viewing_phase_manager.gd # Initial viewing phase
+├── turn_manager.gd      # Turn flow, draw, swap, reshuffle
+├── ability_manager.gd   # Human ability flows (7/8, 9/10, Jack, Queen)
+├── bot_ai_manager.gd    # Bot turn logic + ability decisions
+├── match_manager.gd     # Fast reaction matching system
+├── viewing_ui.gd        # Viewing phase UI
+├── turn_ui.gd           # Turn indicator UI
+├── swap_choice_ui.gd    # Queen ability swap choice UI
+└── camera_controller.gd # Camera effects
 
 autoloads/
 ├── events.gd            # Signal bus (autoload)
@@ -171,12 +183,13 @@ Spawned card 1: 7♥ at (-0.8, 0, -0.5)
 
 ### 📊 Code Statistics
 
-- **Total Lines of Code:** ~2,200
-- **Scripts:** 12 files
+- **Total Lines of Code:** ~5,500+
+- **Scripts:** 20 files (18 scripts + 2 autoloads)
 - **Scenes:** 9 files
 - **Signals Defined:** 20+
 - **Game States:** 7
 - **Card Types:** 54
+- **Manager scripts:** 7 (refactored from game_table.gd)
 
 ### ✅ Phase Completion Checklist
 
@@ -259,29 +272,77 @@ Spawned card 1: 7♥ at (-0.8, 0, -0.5)
 - ✅ `start_next_turn()` updated — sets `is_player_turn = false` + `draw_pile_visual.set_interactive(false)` FIRST, then `if deck_manager.can_reshuffle(): await animate_pile_reshuffle()` before turn logic
 - ✅ FIFO order verified by full 54-card 4-player game (`9♦` first discard → first draw after 37-card reshuffle)
 
-### 🚀 Next Steps (Phase 6)
+**Phase 6 - Fast Reaction Matching System:**
+- ✅ Right-click card matching (always active, works anytime)
+- ✅ Match validation (card rank vs top of discard pile)
+- ✅ Own card matching (removes card from deck; turn continues)
+- ✅ Opponent card matching (success = give one of your cards; fail = penalty)
+- ✅ Give-card selection UI (human picks which card to give; main grid or penalty)
+- ✅ Penalty card system (8 fixed slots around 2×2 grid; 9th+ card stacks with Y-offset 0.025)
+- ✅ Penalty card matching (penalty cards are right-clickable and matchable)
+- ✅ One-match-per-update lock (`match_claimed` lockout until new discard)
+- ✅ Drawn card swaps penalty slot (replaces at exact slot index)
+- ✅ Match test deck (Y key, 52 cards of only 7s and 8s)
+- ✅ Bot AI for matching: not implemented (future enhancement)
+
+**Phase 6 Bug Fixes:**
+- ✅ Penalty swap slot race condition — full lockout at top of `swap_cards()` before all awaits; `match_claimed` / `_unlock_matching()` deferred to after animations
+- ✅ Give-card state lifecycle — `_unlock_matching()` no longer touches `is_choosing_give_card`; owned by `_handle_opponent_card_match` (set) and `handle_give_card_selection` (clear)
+- ✅ Deferred turn resume — `give_card_needs_turn_start` flag in `game_table.gd`; `start_next_turn()` checks it and defers via `_start_give_card_selection()`; `handle_give_card_selection()` resumes turn when flag is set
+- ✅ Penalty card ownership — `owner_player` set explicitly in `swap_cards()` penalty path; defensive fallback in `add_card()` / `insert_penalty_card_at()` in `player_grid.gd`
+- ✅ Card selection ownership check — `handle_card_selection()` now searches current player’s grid + penalty arrays directly instead of using fragile `owner_player` property
+**Code Refactoring** ✅ COMPLETE
+- ✅ game_table.gd split into 7 focused manager scripts:
+  - **CardViewHelper** ([scripts/card_view_helper.gd](scripts/card_view_helper.gd)) — view positions, rotations, sideways directions, seat markers, neighbor lookups (165 lines)
+  - **DealingManager** ([scripts/dealing_manager.gd](scripts/dealing_manager.gd)) — card dealing with staggered animation (89 lines)
+  - **ViewingPhaseManager** ([scripts/viewing_phase_manager.gd](scripts/viewing_phase_manager.gd)) — initial viewing phase, bottom 2 cards, ready system (260 lines)
+  - **TurnManager** ([scripts/turn_manager.gd](scripts/turn_manager.gd)) — turn flow, card drawing, swapping, discard, pile reshuffling (506 lines)
+  - **AbilityManager** ([scripts/ability_manager.gd](scripts/ability_manager.gd)) — all 4 human ability flows (913 lines)
+  - **BotAIManager** ([scripts/bot_ai_manager.gd](scripts/bot_ai_manager.gd)) — bot turn logic, ability decisions, penalty card support (605 lines)
+  - **MatchManager** ([scripts/match_manager.gd](scripts/match_manager.gd)) — fast reaction matching, give-card, penalty system (404 lines)
+- ✅ game_table.gd reduced from ~1500+ lines to ~377 lines (orchestrator only: input, setup, dispatch)
+- ✅ Each manager receives `table` reference via `init(game_table)` and is added as child Node
+- ✅ Signal wiring done in game_table._ready() (pile_reshuffled, ready_pressed, swap_chosen, etc.)
+
+**Bot AI Overhaul** ✅ COMPLETE
+- ✅ Bot swap selection considers ALL occupied slots (main grid + penalty cards) instead of one random main-grid slot
+- ✅ Ability fallback: if no swap targets exist but drawn card has ability, bot uses it instead of wasting the turn
+- ✅ All 4 bot ability functions pick from full card pool (main + penalty): look own, look opponent, blind swap, look and swap
+- ✅ Helper functions: `_get_all_cards(grid)`, `_get_card_return_position(grid, card)`, `_pick_random_card(grid)`
+- ✅ Cards return to correct position after bot abilities (works for main-grid and penalty slot positions)
+### 🚀 Next Steps (Phase 7)
 
 **Immediate priorities:**
-1. **Drag-and-Drop Mechanic** - Hold mouse on card, release over discard pile
-2. **Match Validation** - Card rank must match top of discard pile
-3. **Own Card Matching** - Removes card from player's deck
-4. **Opponent Card Matching** - Success/fail logic with card transfer
-5. **Penalty Card System** - Dynamic positioning around 2×2 grid
-6. **Matching Lock/Unlock** - One match per discard update
+1. **Knocking mechanic** — player knocks instead of drawing (uses entire turn)
+2. **Final round logic** — after knock, all other players get one more normal turn
+3. **Round end reveal** — all cards flipped face-up when turn returns to knocker
+4. **Scoring** — sum all card values per player (main grid + penalty cards)
+5. **Winner determination** — lowest score wins
+6. **Round end screen** — display scores and winner
 
 **Code to write:**
-- Drag detection and cursor following in `card_3d.gd`
-- Drop zone logic in `game_table.gd`
-- Penalty card positioning in `player_grid.gd`
+- Knock action in `turn_manager.gd` (replaces draw)
+- Final round state tracking in `game_table.gd`
+- Score calculation in `player.gd` or new `scoring_manager.gd`
+- Round end UI
 
-### 🎯 Success Criteria for Phase 6
+### 🎯 Success Criteria for Phase 7
 
-When Phase 6 is complete, you should be able to:
-- [ ] Drag any card and release over discard pile to attempt match
-- [ ] Own card match succeeds (card removed from deck)
-- [ ] Opponent card match: correct = transfer, wrong = penalty
-- [ ] Penalty cards appear positioned around 2×2 grid
-- [ ] Matching locks after each match until new discard
+When Phase 7 is complete, you should be able to:
+- [ ] Press a button to knock on your turn instead of drawing
+- [ ] All other players take one more turn after a knock
+- [ ] Cards are revealed when round ends
+- [ ] Scores are correctly calculated and displayed
+- [ ] Lowest score wins the round
+
+### 🎯 Success Criteria for Phase 6 ✅ MET
+
+Phase 6 is fully implemented:
+- [x] Right-click any card to attempt a match against discard pile
+- [x] Own card match succeeds (card removed from deck; turn continues)
+- [x] Opponent card match: correct = give them one of your cards, wrong = penalty card
+- [x] Penalty cards positioned around 2×2 grid; 9th+ stacks with Y-offset
+- [x] Matching locks after each match until new card on discard
 
 ### 💡 Technical Notes
 
@@ -370,20 +431,26 @@ func _on_card_flipped(card: Card3D, is_face_up: bool):
 
 ## 🎉 Conclusion
 
-**Phases 0–5 are complete!** The foundation is solid and all special abilities are fully implemented, bug-fixed, and tested. The game has a complete turn loop with proper neighbor detection, visual highlights, and bot AI.
+**Phases 0–6 are complete!** The foundation is solid, all special abilities are implemented, and the full fast-reaction matching system (including penalty cards, give-card selection, and all bug fixes) is working.
 
 **What works:**
 ✅ Full dealing and turn system  
 ✅ All four special abilities  
-✅ Bot AI (turns + abilities)  
+✅ Bot AI (turns + abilities + penalty card awareness)  
 ✅ Color-coded pulsing highlights  
 ✅ Card rotation correct after swaps  
 ✅ Neighbor restriction enforced  
+✅ Right-click matching (always active)  
+✅ Penalty card system (8 slots + overflow stacking)  
+✅ Give-card selection after opponent match  
+✅ All Phase 6 bug fixes applied  
+✅ game_table.gd refactored into 7 manager scripts  
+✅ Bot AI overhauled (penalty cards, ability fallback)  
 
-**Next milestone:** Phase 6 - Fast Reaction Matching System
+**Next milestone:** Phase 7 — Knocking and Scoring
 
 ---
 
 **Built with:** Godot 4.5 (Forward Plus)  
-**Last Updated:** February 19, 2026 (Reshuffle Overhaul + All Bug Fixes)  
-**Status:** 🟢 **Phase 5 Complete - Ready for Phase 6**
+**Last Updated:** Phase 6 Complete + Code Refactoring + Bot AI Overhaul  
+**Status:** 🟢 **Phase 6 Complete — Ready for Phase 7**

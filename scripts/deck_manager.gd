@@ -60,8 +60,46 @@ func create_test_deck_7_8() -> void:
 	
 	print("Created TEST deck with %d cards (7s, 8s, 9s, 10s, Jacks, Queens)" % card_data_deck.size())
 
+func create_test_deck_matching() -> void:
+	"""Create a 52-card deck of only 7s and 8s (26 each) for match testing"""
+	card_data_deck.clear()
+	
+	var suits = [CardData.Suit.HEARTS, CardData.Suit.DIAMONDS, CardData.Suit.CLUBS, CardData.Suit.SPADES]
+	for i in range(26):
+		var card = CardData.new()
+		card.rank = CardData.Rank.SEVEN
+		card.suit = suits[i % 4]
+		card_data_deck.append(card)
+	for i in range(26):
+		var card = CardData.new()
+		card.rank = CardData.Rank.EIGHT
+		card.suit = suits[i % 4]
+		card_data_deck.append(card)
+	
+	print("Created MATCH TEST deck with %d cards (26×7, 26×8)" % card_data_deck.size())
+
+var is_match_test_mode: bool = false  # Toggle for match testing (7s and 8s only)
+
+func toggle_match_test_mode() -> void:
+	"""Toggle between standard deck and match test deck (7s and 8s only)"""
+	# Turn off the other test mode if it's on
+	if is_test_mode:
+		is_test_mode = false
+	is_match_test_mode = not is_match_test_mode
+	
+	if is_match_test_mode:
+		create_test_deck_matching()
+	else:
+		create_standard_deck()
+	
+	shuffle()
+	print("Match test mode: %s" % ("ENABLED (7s and 8s only)" if is_match_test_mode else "DISABLED (standard deck)"))
+
 func toggle_test_mode() -> void:
 	"""Toggle between standard deck and test deck"""
+	# Turn off the other test mode if it's on
+	if is_match_test_mode:
+		is_match_test_mode = false
 	is_test_mode = not is_test_mode
 	
 	if is_test_mode:

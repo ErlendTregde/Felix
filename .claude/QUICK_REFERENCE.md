@@ -12,10 +12,12 @@
 | **ENTER** | Deal cards to all players |
 | **1/2/3/4** | Set player count (1-4) |
 | **T** | Toggle test deck (7/8/9/10/Jack ability cards) ⭐ Phase 5 |
+| **Y** | Toggle match test deck (only 7s and 8s) ⭐ Phase 6 |
 | **D** | Draw card (during your turn) |
 | **SPACE** | Confirm ability / Flip all cards |
 | **A** | Auto-ready all bots (viewing phase shortcut) |
 | **Click Card** | Swap card (during turn) / View card (ability) |
+| **Right Click Card** | Match attempt against discard pile (always active) \u2b50 Phase 6 |
 | **Click Discard** | Use ability (Option A) |
 | **F** | Camera shake |
 | **Hover Card** | Card elevates |
@@ -26,13 +28,25 @@ felix/
 ├── autoloads/           ← Global systems
 │   ├── events.gd        ← Signal bus
 │   └── game_manager.gd  ← State machine
-├── scripts/             ← Core logic
+├── scripts/             ← Core logic (18 files)
 │   ├── card_data.gd     ← Card definitions
 │   ├── card_3d.gd       ← Card behavior ⭐
 │   ├── player.gd        ← Player state
+│   ├── player_grid.gd   ← 2×2 grid + penalty cards
 │   ├── deck_manager.gd  ← Deck operations
-│   ├── camera_controller.gd
-│   └── game_table.gd    ← Main controller
+│   ├── card_pile.gd     ← Pile visuals
+│   ├── game_table.gd    ← Main orchestrator (input, setup, dispatch)
+│   ├── card_view_helper.gd  ← View positions, rotations, neighbors
+│   ├── dealing_manager.gd   ← Card dealing animation
+│   ├── viewing_phase_manager.gd ← Initial viewing phase
+│   ├── turn_manager.gd      ← Turn flow, draw, swap, reshuffle
+│   ├── ability_manager.gd   ← Human ability flows (7/8, 9/10, J, Q)
+│   ├── bot_ai_manager.gd    ← Bot turn logic + penalty awareness
+│   ├── match_manager.gd     ← Fast reaction matching system
+│   ├── viewing_ui.gd        ← Viewing phase UI
+│   ├── turn_ui.gd           ← Turn indicator UI
+│   ├── swap_choice_ui.gd    ← Queen ability swap choice UI
+│   └── camera_controller.gd ← Camera effects
 ├── scenes/
 │   ├── main/
 │   │   └── game_table.tscn  ← RUN THIS! ⭐⭐⭐
@@ -79,17 +93,27 @@ felix/
 - ✅ **Input locked during reshuffle** (`is_player_turn = false` at start of `start_next_turn()`)
 - ✅ **Top discard card preserved** during reshuffle; 1-card edge case handled
 - ✅ **Seat marker crash fixed** (`add_child` before `global_position`)
+- ✅ **Right-click card matching** (always active; final mechanic — no drag-and-drop)
+- ✅ **Opponent card match → give any card** (main grid or penalty card)
+- ✅ **Penalty card system** (8 slots around 2×2 grid; 9th+ stacks with Y-offset)
+- ✅ **Penalty card matching** (penalty cards are right-clickable)
+- ✅ **One-match-per-update lock** (`match_claimed` until new discard)
+- ✅ **Drawn card swaps penalty slot** (replaces at exact slot index)
+- ✅ **Match test deck (Y key)** (52 cards of only 7s and 8s)
+- ✅ **Give-card state lifecycle fixed** (`_unlock_matching` no longer resets `is_choosing_give_card`)
+- ✅ **Deferred turn resume** (`give_card_needs_turn_start` flag)
+- ✅ **Penalty card ownership** (explicit assignment + defensive fallback)
+- ✅ **game_table.gd refactored into 7 manager scripts** (orchestrator pattern + init(table))
+- ✅ **Bot AI overhauled** (penalty card awareness, all-slots search, ability fallback)
 
-## 📝 Next Phase (Phase 6 - Fast Reaction Matching System)
-- [ ] Drag-and-drop mechanic (hold to drag, release to match)
-- [ ] Always-active matching (no time window)
-- [ ] Match detection (rank matching against top discard)
-- [ ] Own card matching (removes from deck)
-- [ ] Opponent card matching (success/fail outcomes)
-- [ ] Penalty card system (positioned around 2×2 grid)
-- [ ] Visual feedback (drag cursor, error effects)
-- [ ] One-match-per-update lock system
-- [ ] Bot AI: Not in Phase 6 (future enhancement)
+## 📝 Next Phase (Phase 7 — Knocking and Scoring)
+- [ ] Knock action — player knocks instead of drawing (uses entire turn)
+- [ ] Final round — all other players get one more normal turn after a knock
+- [ ] Round end reveal — all cards flipped face-up when turn returns to knocker
+- [ ] Scoring — sum all card values; lowest score wins
+- [ ] Round end screen / winner announcement
+- [ ] Matching still active during final round
+- [ ] Multi-round score tracking
 
 ## 🐛 Debug Tips
 - Check **Output** panel for console logs
@@ -139,9 +163,8 @@ print(card.card_data.get_score())       # 7
 - **7/8** = "Look at own card" ability
 - **9/10** = "Look at opponent" ability
 - **J** = "Blind swap" ability
-- **Q** = "Look and 2 Complete | **Version:** Dealing System  
-**Ready to:** Deal cards and test multi-player
+- **Q** = "Look and swap" ability
+
 ---
 
-**Status:** Phase 0-1 Complete | **Version:** Foundation  
-**Ready to:** Click cards and test animations!
+**Status:** Phase 6 Complete + Code Refactoring + Bot AI Overhaul | **Next:** Phase 7 — Knocking and Scoring

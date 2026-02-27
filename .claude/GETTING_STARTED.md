@@ -24,8 +24,10 @@
 | **ENTER** | Deal 4 cards to each player (with staggered animation) ⭐ |
 | **1 / 2 / 3 / 4** | Change player count (resets game) ⭐ |
 | **T** | Toggle test deck (7/8/9/10/Jack/Queen ability cards) ⭐ Phase 5 |
+| **Y** | Toggle match test deck (only 7s and 8s) ⭐ Phase 6 |
 | **D** | Draw card (during your turn) |
 | **Left Click (card)** | Swap drawn card / select target for ability |
+| **Right Click (card)** | Attempt match against discard pile (always active) \u2b50 Phase 6 |
 | **Left Click (discard pile)** | Use ability (Option A - play drawn card to discard) |
 | **SPACE** | Confirm ability viewing (after selecting target card) |
 | **A** | Auto-ready all bots (viewing phase shortcut) |
@@ -86,13 +88,22 @@ Dealing complete! All players have 4 cards.
 ## 📂 Key Files to Explore
 
 ### Scripts (Core Logic)
-- **Multi-player system (1-4 players)** ⭐ NEW
-- **PlayerGrid component (2×2 layout)** ⭐ NEW
-- **Animated dealing sequence** ⭐ NEW
-- **Visual card piles** ⭐ NEW
+- **18 script files** across autoloads/ and scripts/
+- **game_table.gd** — Main orchestrator (input, setup, signal wiring, dispatch)
+- **7 Manager scripts** (refactored from game_table.gd):
+  - [scripts/card_view_helper.gd](scripts/card_view_helper.gd) — View positions, rotations, neighbor lookups
+  - [scripts/dealing_manager.gd](scripts/dealing_manager.gd) — Card dealing with animation
+  - [scripts/viewing_phase_manager.gd](scripts/viewing_phase_manager.gd) — Initial viewing phase
+  - [scripts/turn_manager.gd](scripts/turn_manager.gd) — Turn flow, draw, swap, reshuffle
+  - [scripts/ability_manager.gd](scripts/ability_manager.gd) — Human ability flows (7/8, 9/10, J, Q)
+  - [scripts/bot_ai_manager.gd](scripts/bot_ai_manager.gd) — Bot turn logic + penalty card awareness
+  - [scripts/match_manager.gd](scripts/match_manager.gd) — Fast reaction matching system
 - [scripts/card_data.gd](scripts/card_data.gd) - Card properties and scoring rules
 - [scripts/card_3d.gd](scripts/card_3d.gd) - Card behavior and animations
-- [scripts/game_table.gd](scripts/game_table.gd) - Main test scene controller
+- [scripts/player.gd](scripts/player.gd) - Player state management
+- [scripts/player_grid.gd](scripts/player_grid.gd) - 2×2 grid + penalty cards
+- [scripts/deck_manager.gd](scripts/deck_manager.gd) - Deck operations
+- [scripts/card_pile.gd](scripts/card_pile.gd) - Pile visuals
 - [autoloads/events.gd](autoloads/events.gd) - Global signal bus
 - [autoloads/game_manager.gd](autoloads/game_manager.gd) - Game state machine
 
@@ -103,9 +114,9 @@ Dealing complete! All players have 4 cards.
 
 ## 🛠️ Development Status
 
-**Phase 5 is COMPLETE (including all bug fixes and polish)!**
+**Phase 6 is COMPLETE (including all bug fixes, code refactoring, and bot AI overhaul)!**
 
-✅ **Implemented (Phases 0–5):**
+✅ **Implemented (Phases 0–6):**
 - Card 3D representation with flip animations
 - Deck creation and shuffling (54 cards)
 - Basic interaction (click, hover, highlight)
@@ -120,12 +131,17 @@ Dealing complete! All players have 4 cards.
 - Card rotation fixed after swap
 - Bot AI for all abilities
 - Square 12×12 table, piles at ±0.8
+- **Fast-reaction right-click matching (always active)**
+- **Penalty card system (8 slots + overflow stacking)**
+- **Give-card selection after matching opponent’s card**
+- **Match test deck toggle (Y key)**
+- **game_table.gd refactored into 7 focused manager scripts** (orchestrator pattern)
+- **Bot AI overhauled** (penalty card awareness, all-slots search, ability fallback helpers)
 
-🚧 **Coming Next (Phase 6):**
-- Drag-and-drop card matching (always active)
-- Match own/opponent cards against discard pile
-- Penalty card system
-- Phase 7: Knocking and scoring
+🚧 **Coming Next (Phase 7):**
+- Knocking mechanic (replaces drawing on your turn)
+- Final round logic (everyone else gets one more turn)
+- Score calculation and winner determination
 - Phase 8: Visual polish
 - Phase 9: Low-poly assets
 - Phase 10: Menu system

@@ -64,16 +64,16 @@ func flip(animate: bool = true, duration: float = 0.4) -> void:
 		tween.set_ease(Tween.EASE_OUT)
 		tween.set_trans(Tween.TRANS_CUBIC)
 		
-		# Rotate 180 degrees on Y axis with slight overshoot
+		# Rotate 180 degrees on Y axis relative to current orientation
 		var current_rotation = rotation.y
 		var target_rotation = current_rotation + PI
 		
-		# Add overshoot for juice
+		# First half of flip (overshoot past target)
 		tween.tween_property(self, "rotation:y", target_rotation + 0.2, duration * 0.6)
+		# Swap meshes right after the first half (card is edge-on)
+		tween.tween_callback(update_visibility)
+		# Second half of flip (settle to final rotation)
 		tween.tween_property(self, "rotation:y", target_rotation, duration * 0.4)
-		
-		# Update visibility halfway through flip
-		tween.tween_callback(update_visibility).set_delay(duration * 0.5)
 		tween.tween_callback(_on_flip_completed)
 	else:
 		rotation.y += PI
@@ -231,6 +231,10 @@ func _apply_hover_state() -> void:
 func _on_flip_completed() -> void:
 	"""Called when flip animation completes"""
 	is_animating = false
+	# Normalize Y rotation to prevent drift from repeated flips
+	rotation.y = fmod(rotation.y, TAU)
+	if rotation.y < 0:
+		rotation.y += TAU
 	Events.card_flipped.emit(self, is_face_up)
 	flip_completed.emit(self, is_face_up)
 	print("Card flipped: %s (face_up: %s)" % [card_data.get_short_name(), is_face_up])

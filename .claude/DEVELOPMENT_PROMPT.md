@@ -198,23 +198,38 @@ When a card is placed face-up on the discard pile, players can immediately:
 - ✅ Square table (12×12), piles at ±0.8
 - ✅ Player-indexed view helpers for per-player animations
 
-**Phase 6: Fast Reaction Matching System**
-- **Always-active matching** (no time window - works anytime during gameplay)
-- **Drag-and-drop mechanic** (hold to drag, release on discard pile to match)
+**Phase 6: Fast Reaction Matching System** ✅ COMPLETE
+- **Always-active matching** (no time window — works anytime during gameplay)
+- **Right-click mechanic** (right-click a card to attempt a match against discard pile — final design, no drag-and-drop)
 - **Match detection** (card rank must match top of discard pile)
-- **Own card matching** (removes card from deck)
-- **Opponent card matching** (success = their card out, your card to them | fail = penalty)
-- **Penalty system** (cards positioned around 2×2 grid, expanding beyond 4 cards)
-- **Visual feedback** (card follows cursor, distinct error effects for wrong matches)
-- **One-match-per-update lock** (matching disabled until new card on discard pile)
-- **Bot AI for matching:** Not in Phase 6 (future enhancement)
+- **Own card matching** (removes card from your deck; does NOT end your turn)
+- **Opponent card matching** (success = their card discarded, you give them ANY one of your cards — main grid OR penalty cards | fail = you get a penalty card)
+- **Penalty system** (8 fixed slots surrounding 2×2 grid; 9th+ cards stack at last slot with Y offset of 0.025 per overflow card)
+- **Penalty card matching** (penalty cards can also be right-clicked to attempt a match)
+- **One-match-per-update lock** (matching disabled until new card is placed on discard pile)
+- **Drawn card replaces penalty slot** (when swapping a drawn card with a penalty card, the drawn card occupies the exact same slot index)
+- **Matching mid-turn allowed** (matching works at any point; own-card match does not end the active turn)
+- **Bot AI for matching:** Not implemented (future enhancement)
+
+**Code Refactoring** ✅ COMPLETE
+- **game_table.gd split into 7 managers** — CardViewHelper, DealingManager, ViewingPhaseManager, TurnManager, AbilityManager, BotAIManager, MatchManager
+- **Each manager** is a standalone Node with `class_name`, receives `table` reference via `init()`
+- **game_table.gd** reduced to orchestrator (~377 lines): input handling, setup, signal wiring, dispatch
+
+**Bot AI Overhaul** ✅ COMPLETE
+- **Bot swap targets all occupied slots** — main grid + penalty cards (was: single random main-grid slot)
+- **Ability fallback** — if no swap targets exist, bot falls back to using ability (if drawn card has one)
+- **Bot abilities work with penalty cards** — look own, look opponent, blind swap, look and swap all pick from full card pool
+- **Helper functions** — `_get_all_cards(grid)`, `_get_card_return_position(grid, card)`, `_pick_random_card(grid)`
 
 **Phase 7: Knocking and Scoring**
-- Knock button/action
-- Final round logic
-- Score calculation (proper point values)
-- Round end screen
-- Winner determination
+- **Knocking:** Any player (human or bot) may knock on their turn instead of drawing — knocking IS the turn (no card drawn)
+- **Final round:** After a player knocks, every OTHER player gets exactly one more normal turn in order
+- **Round end:** When the turn comes back to the knocker, all cards are immediately revealed
+- **Scoring:** Each player sums the values of all their cards (main grid + penalty cards); special values apply (Black King = −1, Red King = +25, Joker = 1)
+- **Winner:** Player with the LOWEST total score wins the round
+- **Matching during final round:** Fast-reaction matching remains active throughout the final round
+- Round end screen / winner announcement
 - Multi-round score tracking
 
 **Phase 8: Visual Polish & Juice**
@@ -300,13 +315,22 @@ felix/
 │   ├── card_data.gd        # Card resource class
 │   ├── card_3d.gd          # Card behavior and interaction
 │   ├── player.gd           # Player state management
-│   ├── player_grid.gd      # 2×2 grid manager
+│   ├── player_grid.gd      # 2×2 grid manager + penalty card slots
 │   ├── deck_manager.gd     # Deck operations (shuffle, deal, FIFO)
 │   ├── card_pile.gd        # Pile visuals (draw/discard)
+│   ├── game_table.gd       # Main orchestrator (input, setup, dispatch)
+│   ├── card_view_helper.gd # View positions, rotations, neighbors ⭐ Refactor
+│   ├── dealing_manager.gd  # Card dealing with animation ⭐ Refactor
+│   ├── viewing_phase_manager.gd # Initial viewing phase ⭐ Refactor
+│   ├── turn_manager.gd     # Turn flow, drawing, swapping, reshuffle ⭐ Refactor
+│   ├── ability_manager.gd  # All 4 card abilities (human) ⭐ Refactor
+│   ├── bot_ai_manager.gd   # Bot turn logic + ability decisions ⭐ Refactor
+│   ├── match_manager.gd    # Fast reaction matching system ⭐ Phase 6
 │   ├── viewing_ui.gd       # Viewing phase UI ⭐ Phase 3
 │   ├── turn_ui.gd          # Turn indicator UI ⭐ Phase 4
+│   ├── swap_choice_ui.gd   # Queen ability swap choice UI ⭐ Phase 5
 │   ├── camera_controller.gd
-│   └── game_table.gd       # Main scene controller
+│   └── (game_table.gd was split into the 7 managers above)
 ├── scenes/
 │   ├── main/
 │   │   ├── game_table.tscn      # Main game scene
@@ -318,7 +342,8 @@ felix/
 │   │   └── player_grid.tscn     # Grid prefab
 │   ├── ui/
 │   │   ├── viewing_ui.tscn      # Viewing phase UI ⭐ Phase 3
-│   │   └── turn_ui.tscn         # Turn indicator ⭐ Phase 4
+│   │   ├── turn_ui.tscn         # Turn indicator ⭐ Phase 4
+│   │   └── swap_choice_ui.tscn  # Queen ability UI ⭐ Phase 5
 │   └── effects/
 │       ├── particle_effects.tscn  # TODO: Phase 8
 │       └── screen_shake.tscn      # TODO: Phase 8
@@ -552,6 +577,7 @@ Before moving to next feature, verify:
 - 1/2/3/4 - Change player count
 - ENTER - Deal cards
 - T - Toggle test mode (7/8/9/10/Jack/Queen ability cards)
+- Y - Toggle match test mode (deck with only 7s and 8s — for testing matching)
 
 **Viewing Phase:**
 - Ready Button - Mark yourself ready
@@ -559,7 +585,8 @@ Before moving to next feature, verify:
 
 **Playing Phase:**
 - D - Draw a card
-- Click card - Swap with drawn card (Option B)
+- Left-click card - Swap with drawn card (Option B)
+- Right-click card - Attempt fast-reaction match against discard pile (always active)
 - Click discard pile - Use ability (Option A)
 - SPACE - Confirm ability viewing
 
@@ -567,14 +594,25 @@ Before moving to next feature, verify:
 - SPACE - Flip all cards (when not in ability mode)
 - F - Camera shake (placeholder)
 
+### Code Refactoring (Completed)
+- game_table.gd was split into 7 focused manager scripts for maintainability
+- Each manager receives a `table` reference via `init(game_table)` and is added as a child node
+- **CardViewHelper** — view positions, rotations, sideways directions, seat markers, neighbor lookups
+- **DealingManager** — card dealing with staggered animation
+- **ViewingPhaseManager** — initial viewing phase (bottom 2 cards, ready system)
+- **TurnManager** — turn flow, card drawing, swapping, discard, pile reshuffling
+- **AbilityManager** — all 4 human ability flows (look own, look opponent, blind swap, look and swap)
+- **BotAIManager** — bot turn logic, ability decisions, penalty card awareness
+- **MatchManager** — fast reaction matching, give-card selection, penalty system
+- game_table.gd remains the orchestrator: input handling, setup, and dispatching to managers
+
 ### Known Limitations (To Address in Future Phases)
-- No ability system yet (just swap action)
-- No fast reaction system
-- No knocking/scoring
+- No knocking/scoring system yet (Phase 7)
+- Bot AI does not perform fast-reaction matching (future enhancement)
 - Placeholder materials (white/blue)
 - No sound effects
 - No particle effects
-- Simple bot AI (random only)
+- Bot AI is random (no memory/strategy)
 
 ### Performance Considerations
 - Card pooling (TODO: if needed for many effects)
@@ -600,6 +638,6 @@ Before moving to next feature, verify:
 
 ---
 
-**Last Updated**: February 19, 2026  
-**Current Phase**: Phase 5 Complete + Full Bug Fixes & Polish  
-**Progress**: ~68% of full game implemented
+**Last Updated**: Phase 6 Complete + Code Refactoring + Bot AI Overhaul  
+**Current Phase**: Phase 6 Complete — Ready for Phase 7 (Knocking and Scoring)  
+**Progress**: ~80% of full game implemented
