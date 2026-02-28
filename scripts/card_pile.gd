@@ -103,9 +103,9 @@ func setup_interaction() -> void:
 	
 	var collision = CollisionShape3D.new()
 	var box = BoxShape3D.new()
-	box.size = Vector3(0.8, 0.2, 1.0)  # Slightly larger than card
+	box.size = Vector3(1.0, 0.6, 1.2)  # Generous click area for all camera angles
 	collision.shape = box
-	collision.position = Vector3(0, 0.1, 0)
+	collision.position = Vector3(0, 0.3, 0)
 	interaction_area.add_child(collision)
 	
 	# Connect signals

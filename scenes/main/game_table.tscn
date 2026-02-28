@@ -1,39 +1,130 @@
-[gd_scene load_steps=8 format=3 uid="uid://dw7yw3qkoaae"]
+[gd_scene load_steps=17 format=3 uid="uid://dw7yw3qkoaae"]
 
 [ext_resource type="PackedScene" uid="uid://c5j1yw7qkn80f" path="res://scenes/main/camera_controller.tscn" id="1_camera"]
 [ext_resource type="Script" uid="uid://cjvrnj2ai16ty" path="res://scripts/game_table.gd" id="2_table"]
+[ext_resource type="PackedScene" uid="uid://h014oljtkmft" path="res://scenes/environment/room_blockout.tscn" id="3_room"]
 
-[sub_resource type="PlaneMesh" id="PlaneMesh_table"]
-size = Vector2(12, 12)
+[sub_resource type="CylinderMesh" id="CylinderMesh_tabletop"]
+top_radius = 6.0
+bottom_radius = 6.0
+height = 0.06
+radial_segments = 32
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_table"]
-albedo_color = Color(0.2, 0.4, 0.2, 1)
+albedo_color = Color(0.22, 0.13, 0.07, 1)
 
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
-sky_horizon_color = Color(0.646, 0.656, 0.67, 1)
-ground_horizon_color = Color(0.646, 0.656, 0.67, 1)
+[sub_resource type="TorusMesh" id="TorusMesh_rim"]
+inner_radius = 5.85
+outer_radius = 6.25
+rings = 32
+ring_segments = 12
 
-[sub_resource type="Sky" id="Sky_1"]
-sky_material = SubResource("ProceduralSkyMaterial_sky")
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rim"]
+albedo_color = Color(0.35, 0.2, 0.1, 1)
+metallic = 0.1
+roughness = 0.7
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_apron"]
+top_radius = 5.95
+bottom_radius = 5.95
+height = 0.12
+radial_segments = 32
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_apron"]
+albedo_color = Color(0.28, 0.16, 0.08, 1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_leg"]
+top_radius = 0.08
+bottom_radius = 0.08
+height = 0.69
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_leg"]
+albedo_color = Color(0.15, 0.1, 0.05, 1)
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_bot"]
+radius = 0.45
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bot1"]
+albedo_color = Color(0.85, 0.55, 0.25, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bot2"]
+albedo_color = Color(0.5, 0.5, 0.55, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bot3"]
+albedo_color = Color(0.2, 0.15, 0.15, 1)
 
 [sub_resource type="Environment" id="Environment_1"]
-background_mode = 2
-sky = SubResource("Sky_1")
-ambient_light_source = 2
-ambient_light_color = Color(0.8, 0.8, 0.8, 1)
+background_mode = 1
+background_color = Color(0.05, 0.04, 0.03, 1)
+ambient_light_source = 1
+ambient_light_color = Color(0.6, 0.5, 0.35, 1)
+ambient_light_energy = 0.3
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 0.3
+glow_bloom = 0.1
 
 [node name="GameTable" type="Node3D"]
 script = ExtResource("2_table")
 
 [node name="CameraController" parent="." instance=ExtResource("1_camera")]
 
-[node name="Table" type="MeshInstance3D" parent="."]
-mesh = SubResource("PlaneMesh_table")
+[node name="Table" type="Node3D" parent="."]
+
+[node name="TableTop" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.72, 0)
+mesh = SubResource("CylinderMesh_tabletop")
 surface_material_override/0 = SubResource("StandardMaterial3D_table")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 8, 0)
-shadow_enabled = true
+[node name="TableRim" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.76, 0)
+mesh = SubResource("TorusMesh_rim")
+surface_material_override/0 = SubResource("StandardMaterial3D_rim")
+
+[node name="TableApron" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.65, 0)
+mesh = SubResource("CylinderMesh_apron")
+surface_material_override/0 = SubResource("StandardMaterial3D_apron")
+
+[node name="TableLeg1" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.345, 3)
+mesh = SubResource("CylinderMesh_leg")
+surface_material_override/0 = SubResource("StandardMaterial3D_leg")
+
+[node name="TableLeg2" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.345, -3)
+mesh = SubResource("CylinderMesh_leg")
+surface_material_override/0 = SubResource("StandardMaterial3D_leg")
+
+[node name="TableLeg3" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0.345, 3)
+mesh = SubResource("CylinderMesh_leg")
+surface_material_override/0 = SubResource("StandardMaterial3D_leg")
+
+[node name="TableLeg4" type="MeshInstance3D" parent="Table"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0.345, -3)
+mesh = SubResource("CylinderMesh_leg")
+surface_material_override/0 = SubResource("StandardMaterial3D_leg")
+
+[node name="BotPlaceholders" type="Node3D" parent="."]
+
+[node name="Bot1North" type="MeshInstance3D" parent="BotPlaceholders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, -7.3)
+mesh = SubResource("CapsuleMesh_bot")
+surface_material_override/0 = SubResource("StandardMaterial3D_bot1")
+
+[node name="Bot2West" type="MeshInstance3D" parent="BotPlaceholders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.3, 1.62, 0)
+mesh = SubResource("CapsuleMesh_bot")
+surface_material_override/0 = SubResource("StandardMaterial3D_bot2")
+
+[node name="Bot3East" type="MeshInstance3D" parent="BotPlaceholders"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.3, 1.62, 0)
+mesh = SubResource("CapsuleMesh_bot")
+surface_material_override/0 = SubResource("StandardMaterial3D_bot3")
+
+[node name="Room" parent="." instance=ExtResource("3_room")]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_1")
@@ -43,7 +134,7 @@ environment = SubResource("Environment_1")
 [node name="PositionMarkers" type="Node3D" parent="."]
 
 [node name="DrawPile" type="Node3D" parent="PositionMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.05, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.76, 0)
 
 [node name="DiscardPile" type="Node3D" parent="PositionMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.05, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.76, 0)

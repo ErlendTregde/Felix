@@ -249,12 +249,12 @@ func setup_players(count: int) -> void:
 	
 	num_players = clampi(count, 1, 4)
 	
-	# Player positions around the table
+	# Player positions around the round table (surface at Y=0.75)
 	var positions = [
-		Vector3(0, 0.05, 3.5),    # Player 0 (South - bottom)
-		Vector3(0, 0.05, -3.5),   # Player 1 (North - top)
-		Vector3(-4, 0.05, 0),     # Player 2 (West - left)
-		Vector3(4, 0.05, 0)       # Player 3 (East - right)
+		Vector3(0, 0.76, 3.5),    # Player 0 (South) - Human
+		Vector3(0, 0.76, -3.5),   # Player 1 (North) - Bot
+		Vector3(-4, 0.76, 0),     # Player 2 (West) - Bot
+		Vector3(4, 0.76, 0)       # Player 3 (East) - Bot
 	]
 	
 	var rotations = [

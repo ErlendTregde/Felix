@@ -28,6 +28,15 @@ var deck_manager: Node = null
 func _ready() -> void:
 	print("Felix Card Game - GameManager initialized")
 
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed("toggle_fullscreen"):
+		var window := get_window()
+		if window.mode == Window.MODE_FULLSCREEN:
+			window.mode = Window.MODE_WINDOWED
+		else:
+			window.mode = Window.MODE_FULLSCREEN
+		get_viewport().set_input_as_handled()
+
 func start_game(num_players: int) -> void:
 	"""Initialize a new game with specified number of players"""
 	player_count = clampi(num_players, 2, 4)

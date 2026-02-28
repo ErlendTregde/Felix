@@ -28,7 +28,7 @@ func create_placeholders() -> void:
 	var height = 1.05
 	var border = 0.03  # Border thickness
 
-	# White material
+	# White material — raised Y offset eliminates Z-fighting flicker
 	var mat = StandardMaterial3D.new()
 	mat.albedo_color = Color(1.0, 1.0, 1.0, 0.9)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -36,6 +36,7 @@ func create_placeholders() -> void:
 	mat.emission_enabled = true
 	mat.emission = Color(1.0, 1.0, 1.0)
 	mat.emission_energy_multiplier = 0.5
+	mat.render_priority = 1
 
 	for i in range(4):
 		var container = Node3D.new()
@@ -47,7 +48,7 @@ func create_placeholders() -> void:
 		top.mesh = top_mesh
 		top.material_override = mat
 		top.rotation_degrees = Vector3(-90, 0, 0)
-		top.position = Vector3(0, 0.001, -height/2)
+		top.position = Vector3(0, 0.02, -height/2)
 		container.add_child(top)
 
 		# Bottom border (full width)
@@ -57,7 +58,7 @@ func create_placeholders() -> void:
 		bottom.mesh = bottom_mesh
 		bottom.material_override = mat
 		bottom.rotation_degrees = Vector3(-90, 0, 0)
-		bottom.position = Vector3(0, 0.001, height/2)
+		bottom.position = Vector3(0, 0.02, height/2)
 		container.add_child(bottom)
 
 		# Left border (inner height)
@@ -67,7 +68,7 @@ func create_placeholders() -> void:
 		left.mesh = left_mesh
 		left.material_override = mat
 		left.rotation_degrees = Vector3(-90, 0, 0)
-		left.position = Vector3(-width/2, 0.001, 0)
+		left.position = Vector3(-width/2, 0.02, 0)
 		container.add_child(left)
 
 		# Right border (inner height)
@@ -77,7 +78,7 @@ func create_placeholders() -> void:
 		right.mesh = right_mesh
 		right.material_override = mat
 		right.rotation_degrees = Vector3(-90, 0, 0)
-		right.position = Vector3(width/2, 0.001, 0)
+		right.position = Vector3(width/2, 0.02, 0)
 		container.add_child(right)
 
 		# Position at card slot
@@ -276,13 +277,15 @@ func _build_penalty_placeholder(local_pos: Vector3) -> Node3D:
 	mat.emission_enabled = true
 	mat.emission = Color(1.0, 1.0, 1.0)
 	mat.emission_energy_multiplier = 0.5
+	mat.render_priority = 1
 
 	var container := Node3D.new()
 
-	for edge in [[Vector2(width, border), Vector3(0, 0.001, -height/2)],
-				 [Vector2(width, border), Vector3(0, 0.001, height/2)],
-				 [Vector2(border, height - 2*border), Vector3(-width/2, 0.001, 0)],
-				 [Vector2(border, height - 2*border), Vector3(width/2, 0.001, 0)]]:
+	for edge in [[Vector2(width, border), Vector3(0, 0.02, -height/2)],
+				 [Vector2(width, border), Vector3(0, 0.02, height/2)],
+				 [Vector2(border, height - 2*border), Vector3(-width/2, 0.02, 0)],
+				 [Vector2(border, height - 2*border), Vector3(width/2, 0.02, 0)]]:
+
 		var bar := MeshInstance3D.new()
 		var quad := QuadMesh.new()
 		quad.size = edge[0]

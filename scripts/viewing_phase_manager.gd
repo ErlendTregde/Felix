@@ -76,8 +76,8 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	card2.global_rotation = Vector3(0, view_rotation, 0)
 
 	# Elevate and spread side-by-side
-	card1.move_to(view_center - sideways * 1.0, 0.45, false)
-	card2.move_to(view_center + sideways * 1.0, 0.45, false)
+	card1.move_to(view_center - sideways * 0.5, 0.45, false)
+	card2.move_to(view_center + sideways * 0.5, 0.45, false)
 	await get_tree().create_timer(0.5).timeout
 
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:

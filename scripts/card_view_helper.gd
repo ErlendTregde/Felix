@@ -18,14 +18,14 @@ func get_player_seat_position(player_index: int) -> Vector3:
 		return Vector3.ZERO
 	
 	var grid = table.player_grids[player_index]
-	var table_center = Vector3.ZERO
+	var grid_pos = grid.global_position
 	
-	# Direction from center to grid
-	var center_to_grid = grid.global_position - table_center
+	# Direction from center to grid in XZ plane only (ignore Y)
+	var dir_xz = Vector3(grid_pos.x, 0, grid_pos.z).normalized()
 	
-	# Player sits 1.5 units away from grid, away from center
-	var seat_direction = center_to_grid.normalized()
-	var seat_position = grid.global_position + seat_direction * 1.5
+	# Player sits 1.5 units beyond their grid, away from center
+	var seat_position = grid_pos + dir_xz * 1.5
+	seat_position.y = grid_pos.y  # Keep at table surface height
 	
 	return seat_position
 
@@ -36,15 +36,18 @@ func get_card_view_position() -> Vector3:
 func get_card_view_position_for(player_idx: int) -> Vector3:
 	"""Calculate the viewing position for a card based on a specific player.
 	
-	Production-ready: Card appears in front of the player (between seat and grid).
+	Production-ready: Card appears close to the player's camera/seat,
+	giving the feeling of holding it in hand, near table level.
 	"""
 	if player_idx >= table.player_grids.size():
 		return Vector3.ZERO
 	var seat_pos = get_player_seat_position(player_idx)
 	var grid_pos = table.player_grids[player_idx].global_position
-	var midpoint = (seat_pos + grid_pos) / 2.0
-	midpoint.y += 2.0  # Elevate above table
-	return midpoint
+	var dir = (seat_pos - grid_pos).normalized()
+	# Push card beyond seat toward the player
+	var view_pos = seat_pos + dir * 1.5
+	view_pos.y = seat_pos.y + 0.6  # Low, close to table
+	return view_pos
 
 func get_card_view_rotation() -> float:
 	"""Get the Y-axis rotation for viewing a card based on current player."""
@@ -132,32 +135,30 @@ func create_seat_markers() -> void:
 	for i in range(table.num_players):
 		var seat_pos = get_player_seat_position(i)
 		
-		# Create a simple sphere mesh
+		# Create a simple sphere mesh (small debug indicator)
 		var mesh_instance = MeshInstance3D.new()
 		var sphere_mesh = SphereMesh.new()
-		sphere_mesh.radius = 0.15
-		sphere_mesh.height = 0.3
+		sphere_mesh.radius = 0.06
+		sphere_mesh.height = 0.12
 		mesh_instance.mesh = sphere_mesh
 		
 		# Create material (different color per player)
 		var material = StandardMaterial3D.new()
 		if i == 0:
-			material.albedo_color = Color.GREEN  # Player 1 (human)
+			material.albedo_color = Color(0.2, 0.7, 0.2)  # Player 1 (human) muted green
 		elif i == 1:
-			material.albedo_color = Color.RED  # Player 2 (north bot)
+			material.albedo_color = Color(0.7, 0.2, 0.2)  # Player 2 (north bot) muted red
 		elif i == 2:
-			material.albedo_color = Color.BLUE  # Player 3 (west bot)
+			material.albedo_color = Color(0.2, 0.2, 0.7)  # Player 3 (west bot) muted blue
 		elif i == 3:
-			material.albedo_color = Color.YELLOW  # Player 4 (east bot)
+			material.albedo_color = Color(0.7, 0.7, 0.2)  # Player 4 (east bot) muted yellow
 		
-		material.emission_enabled = true
-		material.emission = material.albedo_color
-		material.emission_energy = 0.5
+		material.emission_enabled = false
 		mesh_instance.material_override = material
 		
 		# Add to tree first, THEN set global_position (requires is_inside_tree())
 		table.add_child(mesh_instance)
-		mesh_instance.global_position = Vector3(seat_pos.x, 0.5, seat_pos.z)
+		mesh_instance.global_position = Vector3(seat_pos.x, seat_pos.y + 0.3, seat_pos.z)
 		
 		table.seat_markers.append(mesh_instance)
 		

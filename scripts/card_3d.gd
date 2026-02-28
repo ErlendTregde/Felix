@@ -165,14 +165,14 @@ func elevate(height: float = 0.2, duration: float = 0.15) -> void:
 	var tween = create_tween()
 	tween.set_ease(Tween.EASE_OUT)
 	tween.set_trans(Tween.TRANS_QUAD)
-	tween.tween_property(self, "position:y", base_position.y + height, duration)
+	tween.tween_property(self, "global_position:y", base_position.y + height, duration)
 
 func lower(duration: float = 0.15) -> void:
 	"""Return card to base position"""
 	var tween = create_tween()
 	tween.set_ease(Tween.EASE_OUT)
 	tween.set_trans(Tween.TRANS_QUAD)
-	tween.tween_property(self, "position:y", base_position.y, duration)
+	tween.tween_property(self, "global_position:y", base_position.y, duration)
 
 func move_to(target_position: Vector3, duration: float = 0.5, with_rotation: bool = false) -> void:
 	"""Smoothly move card to target position"""
