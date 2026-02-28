@@ -91,7 +91,7 @@ func tilt_card_towards_viewer(card: Card3D, steep: bool = false) -> void:
 	When steep=true the card tilts nearly vertical so the front is hidden from
 	the overhead camera (used for bot-private viewing).
 	"""
-	var tilt_angle := -1.4 if steep else -0.6
+	var tilt_angle := 1.4 if steep else 0.6
 	var tween = card.create_tween()
 	tween.tween_property(card, "rotation:x", tilt_angle, 0.2)
 
@@ -123,43 +123,91 @@ func get_neighbors(player_index: int) -> Array[int]:
 	return neighbors
 
 func create_seat_markers() -> void:
-	"""Create visual debug markers at each player's seating position.
-	This helps visualize where bots are 'sitting' and verify card viewing works correctly.
+	"""Create bot character visuals at each bot player's seat (on the chairs).
+	Human player (index 0) gets a small marker; bots get a full capsule body + sphere head.
 	"""
 	# Clear old markers
 	for marker in table.seat_markers:
 		marker.queue_free()
 	table.seat_markers.clear()
 	
-	# Create a marker for each player
+	# Bot body dimensions (large — must visually sit on chairs)
+	var body_radius := 0.55
+	var body_height := 2.2
+	var head_radius := 0.42
+	
 	for i in range(table.num_players):
 		var seat_pos = get_player_seat_position(i)
 		
-		# Create a simple sphere mesh (small debug indicator)
-		var mesh_instance = MeshInstance3D.new()
-		var sphere_mesh = SphereMesh.new()
-		sphere_mesh.radius = 0.06
-		sphere_mesh.height = 0.12
-		mesh_instance.mesh = sphere_mesh
+		# Chair sitting position: push bot further out to land right on the chair.
+		# Grid positions are ~3.5-4.0 from center; chairs are at ~5.5-6.0 from center.
+		var grid_pos = table.player_grids[i].global_position
+		var dir_away = Vector3(grid_pos.x, 0, grid_pos.z).normalized()
+		var chair_sit_pos = grid_pos + dir_away * 3.0
+		chair_sit_pos.y = seat_pos.y
 		
-		# Create material (different color per player)
-		var material = StandardMaterial3D.new()
+		# Bot color per player slot
+		var bot_color: Color
 		if i == 0:
-			material.albedo_color = Color(0.2, 0.7, 0.2)  # Player 1 (human) muted green
+			bot_color = Color(0.2, 0.7, 0.2)   # Human: green (small marker only)
 		elif i == 1:
-			material.albedo_color = Color(0.7, 0.2, 0.2)  # Player 2 (north bot) muted red
+			bot_color = Color(0.7, 0.2, 0.2)   # North bot: red
 		elif i == 2:
-			material.albedo_color = Color(0.2, 0.2, 0.7)  # Player 3 (west bot) muted blue
-		elif i == 3:
-			material.albedo_color = Color(0.7, 0.7, 0.2)  # Player 4 (east bot) muted yellow
+			bot_color = Color(0.2, 0.2, 0.7)   # West bot: blue
+		else:
+			bot_color = Color(0.7, 0.7, 0.2)   # East bot: yellow
 		
-		material.emission_enabled = false
-		mesh_instance.material_override = material
-		
-		# Add to tree first, THEN set global_position (requires is_inside_tree())
-		table.add_child(mesh_instance)
-		mesh_instance.global_position = Vector3(seat_pos.x, seat_pos.y + 0.3, seat_pos.z)
-		
-		table.seat_markers.append(mesh_instance)
-		
-		print("Created seat marker for Player %d at %s (color: %s)" % [i + 1, mesh_instance.global_position, material.albedo_color])
+		if i == 0:
+			# Human player — just a small marker dot
+			var dot = MeshInstance3D.new()
+			var sphere = SphereMesh.new()
+			sphere.radius = 0.06
+			sphere.height = 0.12
+			dot.mesh = sphere
+			var mat = StandardMaterial3D.new()
+			mat.albedo_color = bot_color
+			dot.material_override = mat
+			table.add_child(dot)
+			dot.global_position = Vector3(seat_pos.x, seat_pos.y + 0.3, seat_pos.z)
+			table.seat_markers.append(dot)
+		else:
+			# Bot character — capsule body + sphere head, sitting on chair
+			var bot_root = Node3D.new()
+			bot_root.name = "BotVisual_%d" % i
+			table.add_child(bot_root)
+			# Position at chair, lowered so it looks seated (lower body hidden in chair)
+			bot_root.global_position = Vector3(chair_sit_pos.x, chair_sit_pos.y - 0.6, chair_sit_pos.z)
+			
+			# Make bot face toward center of table
+			var dir_to_center = Vector3(-chair_sit_pos.x, 0, -chair_sit_pos.z).normalized()
+			if dir_to_center.length() > 0.01:
+				bot_root.rotation.y = atan2(dir_to_center.x, dir_to_center.z)
+			
+			# Body (capsule)
+			var body = MeshInstance3D.new()
+			var capsule = CapsuleMesh.new()
+			capsule.radius = body_radius
+			capsule.height = body_height
+			body.mesh = capsule
+			var body_mat = StandardMaterial3D.new()
+			body_mat.albedo_color = bot_color
+			body_mat.roughness = 0.8
+			body.material_override = body_mat
+			bot_root.add_child(body)
+			body.position = Vector3(0, body_height * 0.5, 0)
+			
+			# Head (sphere)
+			var head = MeshInstance3D.new()
+			var head_mesh = SphereMesh.new()
+			head_mesh.radius = head_radius
+			head_mesh.height = head_radius * 2.0
+			head.mesh = head_mesh
+			var head_mat = StandardMaterial3D.new()
+			head_mat.albedo_color = bot_color.lightened(0.2)
+			head_mat.roughness = 0.7
+			head.material_override = head_mat
+			bot_root.add_child(head)
+			head.position = Vector3(0, body_height + head_radius * 0.8, 0)
+			
+			table.seat_markers.append(bot_root)
+			print("Created bot visual for Player %d at %s (color: %s)" % [i + 1, bot_root.global_position, bot_color])

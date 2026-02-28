@@ -185,10 +185,11 @@ func draw_card_from_pile() -> Card3D:
 		print("Draw pile is empty!")
 		return null
 	
-	# Create the card at draw pile
+	# Create the card at the top of the draw pile stack
 	var card = table.card_scene.instantiate()
 	table.add_child(card)
-	card.global_position = table.draw_pile_marker.global_position
+	var top_offset = Vector3(0, table.draw_pile_visual.card_count * 0.01, 0) if table.draw_pile_visual else Vector3.ZERO
+	card.global_position = table.draw_pile_marker.global_position + top_offset
 	card.initialize(card_data, false)  # Start face down
 	card.is_interactable = false  # Can't interact with drawn card directly
 	
@@ -204,21 +205,21 @@ func draw_card_from_pile() -> Card3D:
 	# Calculate view position using helper function
 	var view_position = table.view_helper.get_card_view_position()
 	
-	# Animate card to view position
-	card.move_to(view_position, 0.4, false)
+	# Animate card to view position (smooth glide)
+	card.move_to(view_position, 0.6, false)
 	
 	# Set global rotation to face current player
 	var view_rotation = table.view_helper.get_card_view_rotation()
 	card.global_rotation = Vector3(0, view_rotation, 0)
 	
 	# Wait for movement
-	await get_tree().create_timer(0.45).timeout
+	await get_tree().create_timer(0.65).timeout
 	
 	# Flip face-up
 	if not card.is_face_up:
-		card.flip(true, 0.3)
+		card.flip(true, 0.35)
 		# Wait for flip animation
-		await get_tree().create_timer(0.35).timeout
+		await get_tree().create_timer(0.4).timeout
 	else:
 		# Card already face-up, wait same time for consistency
 		await get_tree().create_timer(0.35).timeout

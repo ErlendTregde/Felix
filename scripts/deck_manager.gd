@@ -30,11 +30,12 @@ func create_standard_deck() -> void:
 			
 			card_data_deck.append(card)
 	
-	# Add 2 jokers
+	# Add 2 jokers (black = 0, red = 1)
 	for i in range(2):
 		var joker = CardData.new()
 		joker.suit = CardData.Suit.JOKER
 		joker.rank = CardData.Rank.JOKER
+		joker.joker_index = i
 		card_data_deck.append(joker)
 	
 	print("Created deck with %d cards" % card_data_deck.size())

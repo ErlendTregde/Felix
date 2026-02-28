@@ -13,13 +13,13 @@ size = Vector3(20, 0.1, 20)
 albedo_color = Color(0.12, 0.1, 0.08, 1)
 
 [sub_resource type="BoxMesh" id="mesh_wall_ns"]
-size = Vector3(20.4, 7, 0.2)
+size = Vector3(20.4, 14, 0.2)
 
 [sub_resource type="StandardMaterial3D" id="mat_wall"]
 albedo_color = Color(0.28, 0.2, 0.14, 1)
 
 [sub_resource type="BoxMesh" id="mesh_wall_ew"]
-size = Vector3(0.2, 7, 20.4)
+size = Vector3(0.2, 14, 20.4)
 
 [sub_resource type="StandardMaterial3D" id="mat_wall_accent"]
 albedo_color = Color(0.22, 0.16, 0.1, 1)
@@ -61,54 +61,54 @@ metallic = 0.7
 [node name="RoomBlockout" type="Node3D"]
 
 [node name="Floor" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -6.05, 0)
 mesh = SubResource("mesh_floor")
 surface_material_override/0 = SubResource("mat_floor")
 
 [node name="Ceiling" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.05, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8.05, 0)
 mesh = SubResource("mesh_ceiling")
 surface_material_override/0 = SubResource("mat_ceiling")
 
 [node name="WallNorth" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, -10)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -10)
 mesh = SubResource("mesh_wall_ns")
 surface_material_override/0 = SubResource("mat_wall")
 
 [node name="WallSouth" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, 10)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 10)
 mesh = SubResource("mesh_wall_ns")
 surface_material_override/0 = SubResource("mat_wall")
 
 [node name="WallEast" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 3.5, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1, 0)
 mesh = SubResource("mesh_wall_ew")
 surface_material_override/0 = SubResource("mat_wall_accent")
 
 [node name="WallWest" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 3.5, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 1, 0)
 mesh = SubResource("mesh_wall_ew")
 surface_material_override/0 = SubResource("mat_wall_accent")
 
 [node name="Baseboards" type="Node3D" parent="."]
 
 [node name="BaseboardNorth" type="MeshInstance3D" parent="Baseboards"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.075, -9.88)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -5.925, -9.88)
 mesh = SubResource("mesh_baseboard")
 surface_material_override/0 = SubResource("mat_baseboard")
 
 [node name="BaseboardSouth" type="MeshInstance3D" parent="Baseboards"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.075, 9.88)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -5.925, 9.88)
 mesh = SubResource("mesh_baseboard")
 surface_material_override/0 = SubResource("mat_baseboard")
 
 [node name="BaseboardEast" type="MeshInstance3D" parent="Baseboards"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.88, 0.075, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.88, -5.925, 0)
 mesh = SubResource("mesh_baseboard_ew")
 surface_material_override/0 = SubResource("mat_baseboard")
 
 [node name="BaseboardWest" type="MeshInstance3D" parent="Baseboards"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.88, 0.075, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9.88, -5.925, 0)
 mesh = SubResource("mesh_baseboard_ew")
 surface_material_override/0 = SubResource("mat_baseboard")
 
@@ -137,7 +137,8 @@ surface_material_override/0 = SubResource("mat_chain")
 [node name="MainLight" type="SpotLight3D" parent="CeilingLamp"]
 transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 5.2, 0)
 light_color = Color(1, 0.88, 0.65, 1)
-light_energy = 8.0
+light_energy = 5.0
+light_specular = 0.3
 shadow_enabled = true
 spot_range = 16.0
 spot_attenuation = 0.7

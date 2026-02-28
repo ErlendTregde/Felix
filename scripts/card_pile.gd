@@ -13,7 +13,7 @@ var is_interactive: bool = false  # Can be clicked
 var is_hovered: bool = false
 var hover_timer: Timer = null  # Debounce timer
 
-var card_mesh_scene = preload("res://scenes/cards/card_3d.tscn")
+var card_mesh_scene = preload("res://scenes/cards/card_3d.tscn")  # Kept for reference; pile visuals use CardMeshLibrary directly
 var visual_cards: Array[MeshInstance3D] = []
 var interaction_area: Area3D = null
 var base_position: Vector3 = Vector3.ZERO
@@ -141,12 +141,14 @@ func _on_mouse_exited() -> void:
 		hover_timer.start()
 
 func apply_hover_enter() -> void:
-	"""Elevate only the visual cards (not placeholder)"""
-	for card in visual_cards:
-		if is_instance_valid(card):
-			var base_y = card.position.y
-			var tween = card.create_tween()
-			tween.tween_property(card, "position:y", base_y + 0.15, 0.1)
+	"""Elevate only the top card of the pile (not the whole stack)"""
+	if visual_cards.is_empty():
+		return
+	var top_card = visual_cards[-1]
+	if is_instance_valid(top_card):
+		var base_y = top_card.position.y
+		var tween = top_card.create_tween()
+		tween.tween_property(top_card, "position:y", base_y + 0.15, 0.1)
 
 func _apply_hover_exit() -> void:
 	"""Lower the cards after debounce delay"""
@@ -155,13 +157,15 @@ func _apply_hover_exit() -> void:
 		lower_cards()
 
 func lower_cards() -> void:
-	"""Lower only the visual cards back to base position"""
-	for i in range(visual_cards.size()):
-		var card = visual_cards[i]
-		if is_instance_valid(card):
-			var base_y = i * 0.01  # Original stacked position
-			var tween = card.create_tween()
-			tween.tween_property(card, "position:y", base_y, 0.1)
+	"""Lower only the top card back to its base position"""
+	if visual_cards.is_empty():
+		return
+	var i = visual_cards.size() - 1
+	var top_card = visual_cards[i]
+	if is_instance_valid(top_card):
+		var base_y = i * 0.01  # Original stacked position
+		var tween = top_card.create_tween()
+		tween.tween_property(top_card, "position:y", base_y, 0.1)
 
 
 func set_interactive(interactive: bool) -> void:
@@ -182,7 +186,7 @@ func set_top_card(card_data: CardData) -> void:
 	update_visual()
 
 func update_visual() -> void:
-	"""Update visual representation of the pile"""
+	"""Update visual representation of the pile using actual 3D card meshes."""
 	# Clear existing visual cards
 	for card in visual_cards:
 		if is_instance_valid(card):
@@ -192,27 +196,47 @@ func update_visual() -> void:
 	# Create stacked cards visual
 	var cards_to_show = min(card_count, max_visual_cards)
 	
+	# We need any card mesh for the back side (draw pile / non-top discard cards).
+	# Use clubs_1 (Ace of Clubs) as the generic back — all cards share the same back.
+	var back_mesh_data: Dictionary = {}
+	if CardMeshLibrary:
+		var dummy_data = CardData.new()
+		dummy_data.suit = CardData.Suit.CLUBS
+		dummy_data.rank = CardData.Rank.ACE
+		back_mesh_data = CardMeshLibrary.get_card_mesh_data(dummy_data)
+	
 	for i in range(cards_to_show):
 		var card_mesh = MeshInstance3D.new()
-		var quad = QuadMesh.new()
-		quad.size = Vector2(0.64, 0.89)
-		card_mesh.mesh = quad
 		
-		# For discard pile, show top card face-up. Otherwise show backs
-		if pile_type == "discard" and i == cards_to_show - 1 and top_card_data != null:
-			# Top card of discard - show face (white)
-			var mat = load("res://resources/materials/card_front_material.tres")
-			if mat:
-				card_mesh.set_surface_override_material(0, mat)
+		var is_top_discard: bool = (pile_type == "discard" and i == cards_to_show - 1 and top_card_data != null)
+		
+		if is_top_discard:
+			# Top card of discard — show the actual card face-up
+			var face_data: Dictionary = CardMeshLibrary.get_card_mesh_data(top_card_data) if CardMeshLibrary else {}
+			if face_data.has("mesh") and face_data["mesh"]:
+				card_mesh.mesh = face_data["mesh"]
+				var materials: Array = face_data.get("materials", [])
+				for mi in range(materials.size()):
+					if materials[mi]:
+						card_mesh.set_surface_override_material(mi, materials[mi])
+			# Face-up rotation (front faces +Y)
+			card_mesh.rotation.x = Card3D.FACE_UP_X
 		else:
-			# Use card back material (blue)
-			var mat = load("res://resources/materials/card_back_material.tres")
-			if mat:
-				card_mesh.set_surface_override_material(0, mat)
+			# Back side — use generic card mesh rotated face-down
+			if back_mesh_data.has("mesh") and back_mesh_data["mesh"]:
+				card_mesh.mesh = back_mesh_data["mesh"]
+				var materials: Array = back_mesh_data.get("materials", [])
+				for mi in range(materials.size()):
+					if materials[mi]:
+						card_mesh.set_surface_override_material(mi, materials[mi])
+			# Face-down rotation (back faces +Y)
+			card_mesh.rotation.x = Card3D.FACE_DOWN_X
 		
-		# Stack with slight offset
+		# Apply same scale as Card3D uses
+		card_mesh.scale = Card3D.CARD_MESH_SCALE
+		
+		# Stack with slight Y offset
 		card_mesh.position = Vector3(0, i * 0.01, 0)
-		card_mesh.rotation_degrees = Vector3(-90, 0, 0)
 		
 		add_child(card_mesh)
 		visual_cards.append(card_mesh)

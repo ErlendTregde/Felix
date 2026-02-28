@@ -3,36 +3,45 @@
 [ext_resource type="Script" uid="uid://dkoc2o3h5xw86" path="res://scripts/viewing_ui.gd" id="1_viewing"]
 
 [node name="ViewingUI" type="CanvasLayer"]
+layer = 10
 script = ExtResource("1_viewing")
 
-[node name="Panel" type="PanelContainer" parent="."]
+[node name="BottomCenter" type="VBoxContainer" parent="."]
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -200.0
-offset_top = -150.0
-offset_right = 200.0
-offset_bottom = -50.0
+offset_left = -300.0
+offset_top = -130.0
+offset_right = 300.0
+offset_bottom = -20.0
 grow_horizontal = 2
 grow_vertical = 0
+mouse_filter = 2
 
-[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+[node name="PlayerLabel" type="Label" parent="BottomCenter"]
 layout_mode = 2
-
-[node name="PlayerLabel" type="Label" parent="Panel/VBoxContainer"]
-layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 20
 text = "Player 1"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="StatusLabel" type="Label" parent="Panel/VBoxContainer"]
+[node name="StatusLabel" type="Label" parent="BottomCenter"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.85, 0.85, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 15
 text = "Memorize your bottom 2 cards"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="ReadyButton" type="Button" parent="Panel/VBoxContainer"]
+[node name="ReadyButton" type="Button" parent="BottomCenter"]
 layout_mode = 2
+custom_minimum_size = Vector2(160, 36)
+size_flags_horizontal = 4
 text = "I'm Ready"

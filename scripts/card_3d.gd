@@ -1,6 +1,7 @@
 extends Area3D
 class_name Card3D
-## 3D representation of a playing card with flip animation and interaction
+## 3D representation of a playing card with flip animation and interaction.
+## Uses a single two-sided mesh from the GLB card model.
 
 @export var card_data: CardData
 @export var is_face_up: bool = false
@@ -9,8 +10,9 @@ var owner_player: Player = null
 var is_highlighted: bool = false
 var is_interactable: bool = true
 
-@onready var front_mesh: MeshInstance3D = $FrontMesh
-@onready var back_mesh: MeshInstance3D = $BackMesh
+## The single MeshInstance3D that shows the card (front + back baked in).
+## Created at runtime, rotated on local X to flip between face-up / face-down.
+var card_mesh: MeshInstance3D = null
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
 
 # Visual feedback
@@ -24,6 +26,15 @@ var is_elevation_locked: bool = false  # Prevents hover system from lowering car
 # Matching (Phase 6) — right-click to attempt match
 var is_animating: bool = false  # True while a tween is running — blocks right-click
 
+## Rotation offset applied to card_mesh so that at rotation.x == 0 the FRONT faces +Y (face-up).
+## Flip adds PI on X so the BACK faces +Y (face-down).
+const FACE_DOWN_X := PI
+const FACE_UP_X := 0.0
+
+## Scale factor to shrink GLB card meshes to game-world size.
+## Original game cards were 0.64 × 0.89 units. Adjust this if cards are too big/small.
+const CARD_MESH_SCALE := Vector3(0.085, 0.085, 0.085)
+
 signal card_clicked(card: Card3D)
 signal flip_completed(card: Card3D, is_face_up: bool)
 signal card_right_clicked(card: Card3D)
@@ -31,127 +42,148 @@ signal card_right_clicked(card: Card3D)
 func _ready() -> void:
 	add_to_group("cards")
 	base_position = global_position
-	
+
+	# Create the MeshInstance3D that will hold the card model
+	card_mesh = MeshInstance3D.new()
+	card_mesh.name = "CardMesh"
+	card_mesh.scale = CARD_MESH_SCALE
+	add_child(card_mesh)
+
 	# Create hover debounce timer
 	hover_timer = Timer.new()
 	hover_timer.one_shot = true
 	hover_timer.wait_time = 0.1  # 100ms debounce for lowering
 	hover_timer.timeout.connect(_apply_hover_state)
 	add_child(hover_timer)
-	
+
 	# Connect input signals
 	input_event.connect(_on_input_event)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
-	
-	# Set initial visibility
-	update_visibility()
+
+	# Apply initial face state
+	_apply_face_state()
 
 func initialize(data: CardData, face_up: bool = false) -> void:
-	"""Initialize the card with data"""
+	"""Initialize the card with data — loads the correct mesh from CardMeshLibrary."""
 	card_data = data
 	is_face_up = face_up
-	update_visibility()
+
+	# Fetch mesh + materials from the autoload library
+	var mesh_data: Dictionary = CardMeshLibrary.get_card_mesh_data(card_data)
+	if mesh_data.has("mesh") and mesh_data["mesh"]:
+		card_mesh.mesh = mesh_data["mesh"]
+		var materials: Array = mesh_data.get("materials", [])
+		for i in range(materials.size()):
+			if materials[i]:
+				card_mesh.set_surface_override_material(i, materials[i])
+
+	_apply_face_state()
 	print("Card initialized: %s" % card_data.get_short_name())
 
+func _apply_face_state() -> void:
+	"""Instantly orient the card_mesh child so the correct side faces the camera."""
+	if not card_mesh:
+		return
+	card_mesh.rotation.x = FACE_UP_X if is_face_up else FACE_DOWN_X
+
 func flip(animate: bool = true, duration: float = 0.4) -> void:
-	"""Flip the card over with animation"""
+	"""Flip the card over with animation (rotates card_mesh on its local X axis)."""
 	is_face_up = not is_face_up
-	
+
 	if animate:
 		is_animating = true
+		var target_x: float = FACE_UP_X if is_face_up else FACE_DOWN_X
+
 		var tween = create_tween()
 		tween.set_ease(Tween.EASE_OUT)
 		tween.set_trans(Tween.TRANS_CUBIC)
-		
-		# Rotate 180 degrees on Y axis relative to current orientation
-		var current_rotation = rotation.y
-		var target_rotation = current_rotation + PI
-		
-		# First half of flip (overshoot past target)
-		tween.tween_property(self, "rotation:y", target_rotation + 0.2, duration * 0.6)
-		# Swap meshes right after the first half (card is edge-on)
-		tween.tween_callback(update_visibility)
-		# Second half of flip (settle to final rotation)
-		tween.tween_property(self, "rotation:y", target_rotation, duration * 0.4)
+
+		# Overshoot then settle (juicy flip)
+		var overshoot := 0.15
+		var dir := 1.0 if is_face_up else -1.0
+		tween.tween_property(card_mesh, "rotation:x", target_x + overshoot * dir, duration * 0.6)
+		tween.tween_property(card_mesh, "rotation:x", target_x, duration * 0.4)
 		tween.tween_callback(_on_flip_completed)
 	else:
-		rotation.y += PI
-		update_visibility()
+		_apply_face_state()
 		_on_flip_completed()
 
-func update_visibility() -> void:
-	"""Update which side of the card is visible"""
-	if not is_inside_tree():
-		return
-		
-	if front_mesh and back_mesh:
-		front_mesh.visible = is_face_up
-		back_mesh.visible = not is_face_up
-
 func highlight(selected: bool = false) -> void:
-	"""Add a flat glow overlay on the card surface.
-	   Normal: bright cyan pulse.  Selected: dark solid cyan (card has been chosen)."""
+	"""Apply a juicy glow directly to the card mesh materials.
+	   Normal: pulsing bright emission + gentle scale bounce.
+	   Selected: solid brighter emission, no pulse — clearly 'chosen'."""
 	is_highlighted = true
 	
-	# Fully recreate the mesh each time so colour/state is always fresh
-	if highlight_mesh:
-		if highlight_tween:
-			highlight_tween.kill()
-			highlight_tween = null
-		highlight_mesh.queue_free()
-		highlight_mesh = null
-	
-	highlight_mesh = MeshInstance3D.new()
-	var quad_mesh = QuadMesh.new()
-	quad_mesh.size = Vector2(0.64, 0.89)  # Exact card face size
-	highlight_mesh.mesh = quad_mesh
-	# Cards lie flat in XZ plane (face +Y). QuadMesh faces +Z (XY plane),
-	# so rotate -90 on X to lie flat — same orientation as FrontMesh / BackMesh.
-	highlight_mesh.rotation_degrees = Vector3(-90, 0, 0)
-	highlight_mesh.position = Vector3(0, 0.006, 0)  # Float just above card face
-	add_child(highlight_mesh)
-	
-	var material = StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	
-	if selected:
-		# Darker, solid cyan — no pulse, clearly indicates "this card is chosen"
-		var sel_color = Color(0.0, 0.55, 0.75)
-		material.albedo_color = Color(sel_color.r, sel_color.g, sel_color.b, 0.55)
-		material.emission_enabled = true
-		material.emission = sel_color
-		material.emission_energy_multiplier = 1.2
-		highlight_mesh.material_override = material
-		# No tween — solid state
-	else:
-		# Bright cyan with breathing pulse
-		var glow_color = Color(0.0, 0.85, 1.0)
-		var intensity: float = 0.8
-		material.albedo_color = Color(glow_color.r, glow_color.g, glow_color.b, 0.32)
-		material.emission_enabled = true
-		material.emission = glow_color
-		material.emission_energy_multiplier = intensity
-		highlight_mesh.material_override = material
-		
-		highlight_tween = create_tween()
-		highlight_tween.set_loops()
-		highlight_tween.tween_property(highlight_mesh, "material_override:emission_energy_multiplier",
-				intensity * 0.25, 0.7).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		highlight_tween.tween_property(highlight_mesh, "material_override:emission_energy_multiplier",
-				intensity, 0.7).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-
-func remove_highlight() -> void:
-	"""Fully remove the glow highlight and free all resources"""
-	is_highlighted = false
+	# Kill any previous highlight tween
 	if highlight_tween:
 		highlight_tween.kill()
 		highlight_tween = null
+	
+	# Remove old overlay quad if leftover from previous implementation
 	if highlight_mesh:
 		highlight_mesh.queue_free()
 		highlight_mesh = null
+	
+	# Store original materials on first highlight so we can restore later
+	if not has_meta("original_materials"):
+		var originals: Array = []
+		if card_mesh and card_mesh.mesh:
+			for i in range(card_mesh.mesh.get_surface_count()):
+				var mat = card_mesh.get_active_material(i)
+				originals.append(mat.duplicate() if mat else null)
+		set_meta("original_materials", originals)
+	
+	# Apply subtle transparent amber-gold tint over the original card
+	var glow_color: Color
+	var emission_energy: float
+	
+	if selected:
+		glow_color = Color(1.0, 0.85, 0.4)  # Bright warm gold
+		emission_energy = 0.6
+	else:
+		glow_color = Color(0.95, 0.75, 0.35)  # Soft amber-gold
+		emission_energy = 0.35
+	
+	if card_mesh and card_mesh.mesh:
+		for i in range(card_mesh.mesh.get_surface_count()):
+			var mat = card_mesh.get_active_material(i)
+			if mat and mat is StandardMaterial3D:
+				var glow_mat: StandardMaterial3D = mat.duplicate()
+				glow_mat.emission_enabled = true
+				glow_mat.emission = glow_color
+				glow_mat.emission_energy_multiplier = emission_energy
+				card_mesh.set_surface_override_material(i, glow_mat)
+
+func remove_highlight() -> void:
+	"""Remove glow, restore original materials, reset scale."""
+	is_highlighted = false
+	
+	# Kill any highlight tween
+	if highlight_tween:
+		highlight_tween.kill()
+		highlight_tween = null
+	if has_meta("extra_highlight_tweens"):
+		var extras: Array = get_meta("extra_highlight_tweens")
+		for t in extras:
+			if t is Tween and t.is_valid():
+				t.kill()
+		remove_meta("extra_highlight_tweens")
+	
+	# Remove overlay mesh if any
+	if highlight_mesh:
+		highlight_mesh.queue_free()
+		highlight_mesh = null
+	
+	# Restore original materials
+	if has_meta("original_materials") and card_mesh and card_mesh.mesh:
+		var originals: Array = get_meta("original_materials")
+		for i in range(mini(originals.size(), card_mesh.mesh.get_surface_count())):
+			if originals[i]:
+				card_mesh.set_surface_override_material(i, originals[i].duplicate())
+			else:
+				card_mesh.set_surface_override_material(i, null)
+		remove_meta("original_materials")
 
 func set_highlighted(highlighted: bool, selected: bool = false) -> void:
 	"""Helper to set highlight state. Pass selected=true for the darker 'chosen' style."""
@@ -175,17 +207,14 @@ func lower(duration: float = 0.15) -> void:
 	tween.tween_property(self, "global_position:y", base_position.y, duration)
 
 func move_to(target_position: Vector3, duration: float = 0.5, with_rotation: bool = false) -> void:
-	"""Smoothly move card to target position"""
+	"""Smoothly move card to target position with natural ease-out overshoot."""
 	is_animating = true
 	var tween = create_tween()
 	tween.set_ease(Tween.EASE_OUT)
-	tween.set_trans(Tween.TRANS_CUBIC)
-	
-	# Add slight overshoot for juice
-	var overshoot = (target_position - global_position).normalized() * 0.2
-	tween.tween_property(self, "global_position", target_position + overshoot, duration * 0.7)
-	tween.tween_property(self, "global_position", target_position, duration * 0.3)
-	
+	tween.set_trans(Tween.TRANS_BACK)  # Natural overshoot built into easing
+
+	tween.tween_property(self, "global_position", target_position, duration)
+
 	if with_rotation:
 		# Add spin during movement
 		tween.parallel().tween_property(self, "rotation:y", rotation.y + TAU, duration)
@@ -231,10 +260,8 @@ func _apply_hover_state() -> void:
 func _on_flip_completed() -> void:
 	"""Called when flip animation completes"""
 	is_animating = false
-	# Normalize Y rotation to prevent drift from repeated flips
-	rotation.y = fmod(rotation.y, TAU)
-	if rotation.y < 0:
-		rotation.y += TAU
+	# Snap card_mesh to exact target to prevent drift from repeated flips
+	_apply_face_state()
 	Events.card_flipped.emit(self, is_face_up)
 	flip_completed.emit(self, is_face_up)
 	print("Card flipped: %s (face_up: %s)" % [card_data.get_short_name(), is_face_up])

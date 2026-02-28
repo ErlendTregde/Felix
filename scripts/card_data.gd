@@ -39,6 +39,7 @@ enum AbilityType {
 @export var suit: Suit = Suit.HEARTS
 @export var rank: Rank = Rank.ACE
 @export var is_red_king: bool = false  # Special flag for red kings (+25 points)
+var joker_index: int = 0  # 0 = black joker, 1 = red joker (visual only)
 
 ## Get the score value of this card
 func get_score() -> int:
@@ -91,6 +92,22 @@ func get_card_name() -> String:
 	
 	var suit_name: String = Suit.keys()[suit].capitalize()
 	return "%s of %s" % [rank_name, suit_name]
+
+## Get clean rank display name (e.g., "King", "8", "Joker")
+func get_rank_display() -> String:
+	match rank:
+		Rank.JOKER:
+			return "Joker"
+		Rank.ACE:
+			return "Ace"
+		Rank.JACK:
+			return "Jack"
+		Rank.QUEEN:
+			return "Queen"
+		Rank.KING:
+			return "King"
+		_:
+			return str(rank)
 
 ## Get short display name (e.g., "7♥", "K♠", "Q♦")
 func get_short_name() -> String:

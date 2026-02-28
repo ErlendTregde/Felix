@@ -1,3 +1,21 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Godot 4 cache
+.godot/
+
+# Import files (auto-generated)
+.import/
+*.import
+
+# Mono / C# (if unused)
+.mono/
+data_*/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor settings (optional)
+*.tmp
