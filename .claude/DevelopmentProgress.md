@@ -264,8 +264,16 @@ All fast-reaction matching mechanics fully implemented and bug-fixed.
 - ✅ **Play Again** — Resets deck, grids, penalty cards, bot counter; re-deals cards
 - ✅ **Clean Architecture** — KnockManager + ScoringManager as separate Node scripts (follows existing pattern)
 
+### Phase 9 Visual Polish (IN PROGRESS)
+- ✅ **GLB Table Model** — Round table imported from Sketchfab GLB (`assets/models/tableandchairs/`), scaled to `TARGET_TABLE_RADIUS=6.0`, surface at y=0.76, rotated 45° for chair alignment
+- ✅ **Bot Character Visuals** — Capsule body + sphere head placed on each chair; color-coded: red (North), blue (West), yellow (East), green dot (Human)
+- ✅ **Card Mesh Sizing** — `CARD_MESH_SCALE = Vector3(0.085, 0.085, 0.085)` — cards fit placeholder grid rectangles exactly
+- ✅ **Amber-Gold Highlight** — Replaced cyan with warm amber-gold emission (`Color(0.95, 0.75, 0.35)` normal, `Color(1.0, 0.85, 0.4)` selected); energy 0.35/0.6; no scale animation, no breathing pulse — static tint transparent over card texture
+- ✅ **UI Overhaul** — All 4 UI scenes rewritten: no `PanelContainer`, floating white Labels with 3-5px black outline; clean minimal "Liar's Bar" aesthetic
+- ✅ **3D Discard Label** — `Label3D` billboard node floating above discard pile (y+1.2); shows rank name ("King", "8", "Joker" etc.); added `get_rank_display()` to `CardData`; wired via `Events.card_discarded`
+- ✅ **Card Shininess Fix** — `card_mesh_library.gd` `_cache_mesh()` duplicates GLB materials and forces `roughness ≥ 0.85`, `specular = 0.15`, `metallic = 0.0`; spotlight energy reduced 8 → 5, `light_specular = 0.3`
+
 ### Upcoming Phases
-- **Phase 9:** SKIPPED (polish will be done during/after Phase 10)
 - **Phase 10:** 3D Characters, Environment & First-Person Camera (see [PHASE_10_3D_ASSETS.md](PHASE_10_3D_ASSETS.md))
 - **Phase 11:** Menu and multi-round system
 - **Future:** Multiplayer support
@@ -454,5 +462,5 @@ Phases 0–8 are complete. The full gameplay loop is functional.
 
 ---
 
-**Last Updated:** Phase 8 Complete — Starting Phase 10
-**Next Milestone:** Phase 10A — Primitive Blockout & First-Person Camera
+**Last Updated:** Phase 9 Visual Polish (in progress)
+**Next Milestone:** Phase 9 continued — Particles, Screen Shake, Sound Hooks

@@ -327,14 +327,27 @@ Spawned card 1: 7♥ at (-0.8, 0, -0.5)
 - ✅ **Round-end reveal** — Staggered flip animation (all cards face-up with 0.15s delay per card)
 - ✅ **Play Again flow** — Clears grids + penalty cards, resets deck, re-deals
 
-### 🚀 Next Steps (Phase 9)
+### Phase 9 — Visual Polish (In Progress)
 
-**Immediate priorities:**
+**Completed:**
+- ✅ **GLB Table + Chairs** — `assets/models/tableandchairs/` imported; scaled to `TARGET_TABLE_RADIUS=6.0`; surface Y=0.76; 45° Y rotation for chair alignment; `TARGET_SURFACE_Y` drives pile/card y offsets dynamically
+- ✅ **Bot Character Visuals** — `card_view_helper.gd` spawns capsule body + sphere head per bot seat; colors: red (North), blue (West), yellow (East); human seat gets small green dot marker
+- ✅ **Card Mesh Scale** — `CARD_MESH_SCALE = Vector3(0.085, 0.085, 0.085)` in `card_3d.gd`; cards fill placeholder grid borders exactly
+- ✅ **Amber-Gold Highlight** — `card_3d.gd` `highlight()` duplicates card material, sets emission `Color(0.95, 0.75, 0.35)` at energy 0.35 (normal) or `Color(1.0, 0.85, 0.4)` at energy 0.6 (selected); NO scale tweens, NO breathing pulse; transparent tint over original card texture
+- ✅ **UI Overhaul (4 scenes):**
+  - All `PanelContainer` backgrounds removed
+  - **TurnUI** (`scenes/ui/turn_ui.tscn` + `scripts/turn_ui.gd`) — `VBoxContainer` bottom-center, white 22pt labels with 4px black outline
+  - **ViewingUI** (`scenes/ui/viewing_ui.tscn` + `scripts/viewing_ui.gd`) — same style, bottom-center
+  - **SwapChoiceUI** (`scenes/ui/swap_choice_ui.tscn` + `scripts/swap_choice_ui.gd`) — bottom-center with two buttons
+  - **RoundEndUI** (`scenes/ui/round_end_ui.tscn` + `scripts/round_end_ui.gd`) — center-anchored, warm gold title (26pt)
+- ✅ **3D Discard Label** — `Label3D` created in `setup_card_piles()` as child of `DiscardPile` marker; position `(0, 1.2, 0)`; billboard mode; white text, 8px black outline, `pixel_size=0.005`; `get_rank_display()` added to `CardData` returning clean names ("King", "8", "Joker" etc.); wired via `Events.card_discarded → _on_card_discarded_ui()`
+- ✅ **Card Shininess Fix** — `card_mesh_library.gd` `_cache_mesh()` duplicates `StandardMaterial3D` from GLB and forces `roughness = maxf(m.roughness, 0.85)`, `specular = 0.15`, `metallic = 0.0`; `room_blockout.tscn` spotlight energy 8 → 5, added `light_specular = 0.3`
+
+**Remaining:**
 1. **Particle effects** — Reveals, matches, abilities
 2. **Screen shake** — Knocking, penalties, matches
-3. **Smooth animation polish** — Card movement, transitions
-4. **Visual feedback enhancement** — Celebration effects
-5. **Sound effect hooks** — Integration points for audio
+3. **Celebration effects** — Round win
+4. **Sound effect hooks** — Integration points for audio
 
 ### 🎯 Success Criteria for Phase 8 ✅ MET
 
@@ -468,5 +481,5 @@ func _on_card_flipped(card: Card3D, is_face_up: bool):
 ---
 
 **Built with:** Godot 4.5 (Forward Plus)  
-**Last Updated:** Phase 8 Complete (Knocking & Scoring)  
-**Status:** 🟢 **Phase 8 Complete — Ready for Phase 9**
+**Last Updated:** Phase 9 Visual Polish (in progress)  
+**Status:** 🟡 **Phase 9 In Progress — Visual Polish**

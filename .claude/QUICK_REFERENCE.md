@@ -115,11 +115,16 @@ felix/
 - ✅ **Bot knock AI** (very low random chance, increases each turn)
 - ✅ **KnockManager + ScoringManager** (clean separate scripts)
 
-## 📝 Next Phase (Phase 9 — Visual Polish & Juice)
+## 📝 Phase 9 — Visual Polish (In Progress)
+- ✅ GLB table + chairs model (Sketchfab import, 45° rotation, radius 6.0)
+- ✅ Bot character visuals (capsule + head, color-coded per seat)
+- ✅ Card mesh scale (0.085 — fits placeholder rectangles)
+- ✅ Amber-gold highlight (emission-only, no pulse/scale animation)
+- ✅ UI overhaul (4 scenes rewritten — white text, no panel backgrounds)
+- ✅ 3D discard label (Label3D billboard above pile, rank name)
+- ✅ Card shininess fix (roughness ≥ 0.85, specular 0.15; spotlight 8 → 5)
 - [ ] Particle effects (reveals, matches, abilities)
 - [ ] Screen shake (knocking, penalties, matches)
-- [ ] Smooth animation polish
-- [ ] Visual feedback enhancement
 - [ ] Celebration effects
 - [ ] Sound effect hooks
 
@@ -175,4 +180,4 @@ print(card.card_data.get_score())       # 7
 
 ---
 
-**Status:** Phase 8 Complete (Knocking & Scoring) | **Next:** Phase 9 — Visual Polish & Juice
+**Status:** Phase 9 In Progress (Visual Polish) | **Next:** Particles, Screen Shake, Sound
