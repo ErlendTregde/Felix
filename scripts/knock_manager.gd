@@ -212,7 +212,7 @@ func _spawn_score_label(card: Card3D) -> void:
 	table.add_child(lbl)
 	lbl.global_position = card.global_position + Vector3(0, 0.6, 0)
 
-	# Animate: float up + fade out, then remove
+	# Animate: float up + fade out, then remove and show rank label
 	var tween = table.create_tween()
 	tween.set_parallel(true)
 	tween.tween_property(lbl, "global_position:y", lbl.global_position.y + 0.8, 1.2)\
@@ -221,3 +221,52 @@ func _spawn_score_label(card: Card3D) -> void:
 		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	tween.set_parallel(false)
 	tween.tween_callback(lbl.queue_free)
+	tween.tween_callback(_spawn_rank_label.bind(card))
+
+
+# ======================================
+# RANK LABELS — persistent card name labels shown after score labels fade
+# ======================================
+
+func _spawn_rank_label(card: Card3D) -> void:
+	"""Show a small persistent Label3D on the card with its rank name (e.g. 'King', '8', 'Joker').
+	Stays visible until the next round starts. Added to group 'round_end_rank_labels' for cleanup."""
+	if not is_instance_valid(card) or not card.card_data:
+		return
+
+	var rank_text: String = card.card_data.get_rank_display()
+
+	# Also show suit symbol for non-joker face cards so players can distinguish red/black King
+	if card.card_data.rank != CardData.Rank.JOKER:
+		var suit_symbol: String
+		match card.card_data.suit:
+			CardData.Suit.HEARTS:   suit_symbol = "♥"
+			CardData.Suit.DIAMONDS: suit_symbol = "♦"
+			CardData.Suit.CLUBS:    suit_symbol = "♣"
+			CardData.Suit.SPADES:   suit_symbol = "♠"
+			_: suit_symbol = ""
+		rank_text = "%s %s" % [rank_text, suit_symbol]
+
+	var label_color: Color = Color(1.0, 1.0, 1.0)
+
+	var lbl = Label3D.new()
+	lbl.text = rank_text
+	lbl.font_size = 40
+	lbl.pixel_size = 0.004
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.modulate = label_color
+	lbl.outline_size = 8
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+	# Fade in quickly
+	lbl.modulate.a = 0.0
+
+	table.add_child(lbl)
+	lbl.global_position = card.global_position + Vector3(0, 0.35, 0)
+	lbl.add_to_group("round_end_rank_labels")
+
+	# Fade in
+	var tween = table.create_tween()
+	tween.tween_property(lbl, "modulate:a", 1.0, 0.3).set_ease(Tween.EASE_OUT)

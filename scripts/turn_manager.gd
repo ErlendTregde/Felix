@@ -468,7 +468,18 @@ func _on_pile_reshuffled(_card_count: int) -> void:
 func animate_pile_reshuffle() -> void:
 	"""Perform + animate the discard→draw transfer with a dramatic arc effect.
 	The newest top-of-discard card stays (unless it is the only card, in which case
-	it also transfers and the discard becomes temporarily empty)."""
+	it also transfers and the discard becomes temporarily empty).
+	Uses the actual card meshes (shown face-down) instead of placeholder geometry."""
+	# Capture the card data that will be transferred BEFORE perform_reshuffle moves them
+	var cards_to_move: Array[CardData] = []
+	var discard = table.deck_manager.discard_pile
+	if discard.size() == 1:
+		cards_to_move.append(discard[0])
+	elif discard.size() > 1:
+		# All except the top (most-recently-discarded) card
+		for idx in range(discard.size() - 1):
+			cards_to_move.append(discard[idx])
+	
 	var count = table.deck_manager.perform_reshuffle()
 	if count == 0:
 		return
@@ -485,27 +496,32 @@ func animate_pile_reshuffle() -> void:
 		table.discard_pile_visual.set_count(remaining)
 		table.discard_pile_visual.set_top_card(table.deck_manager.peek_top_discard())
 	
-	# Spawn ghost cards that arc from discard to draw pile
+	# Spawn actual card meshes (face-down) that arc from discard to draw pile
 	var visual_count = mini(count, 10)
 	var stagger := 0.07
 	
 	for i in range(visual_count):
 		var ghost := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(0.64, 0.025, 0.89)
-		ghost.mesh = mesh
 		
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.15, 0.35, 0.95)
-		mat.emission_enabled = true
-		mat.emission = Color(0.4, 0.65, 1.0)
-		mat.emission_energy = 2.0
-		ghost.material_override = mat
+		# Use the actual card mesh from CardMeshLibrary (shown face-down)
+		var card_idx := i if i < cards_to_move.size() else (cards_to_move.size() - 1)
+		var mesh_data: Dictionary = CardMeshLibrary.get_card_mesh_data(cards_to_move[card_idx])
+		if mesh_data.has("mesh") and mesh_data["mesh"]:
+			ghost.mesh = mesh_data["mesh"]
+			var materials: Array = mesh_data.get("materials", [])
+			for mi in range(materials.size()):
+				if materials[mi]:
+					ghost.set_surface_override_material(mi, materials[mi])
+		
+		# Match Card3D scale and face-down orientation
+		ghost.scale = Card3D.CARD_MESH_SCALE
+		ghost.rotation.x = Card3D.FACE_DOWN_X
+		
 		table.add_child(ghost)
 		
 		var jitter := Vector3(randf_range(-0.06, 0.06), 0.0, randf_range(-0.06, 0.06))
 		ghost.global_position = discard_pos + jitter + Vector3(0, 0.025 * (i + 1), 0)
-		ghost.rotation = Vector3(0, randf_range(-0.3, 0.3), 0)
+		ghost.rotation.y = randf_range(-0.3, 0.3)
 		
 		# Two-leg tween: rise to arc peak, then drop to draw pile
 		var tween := create_tween()

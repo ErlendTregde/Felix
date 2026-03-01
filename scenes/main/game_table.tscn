@@ -10,7 +10,7 @@ background_mode = 1
 background_color = Color(0.05, 0.04, 0.03, 1)
 ambient_light_source = 1
 ambient_light_color = Color(0.6, 0.5, 0.35, 1)
-ambient_light_energy = 0.3
+ambient_light_energy = 0.55
 tonemap_mode = 2
 glow_enabled = true
 glow_intensity = 0.3
@@ -22,6 +22,7 @@ script = ExtResource("2_table")
 [node name="CameraController" parent="." instance=ExtResource("1_camera")]
 
 [node name="TableModel" parent="." instance=ExtResource("4_tablemodel")]
+transform = Transform3D(5.95388, 0, -5.95388, 0, 8.42002, 0, 5.95388, 0, 5.95388, 0, 0.0873, 0)
 
 [node name="Room" parent="." instance=ExtResource("3_room")]
 
@@ -33,7 +34,7 @@ environment = SubResource("Environment_1")
 [node name="PositionMarkers" type="Node3D" parent="."]
 
 [node name="DrawPile" type="Node3D" parent="PositionMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0.76, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 6.77, 0)
 
 [node name="DiscardPile" type="Node3D" parent="PositionMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0.76, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 6.77, 0)

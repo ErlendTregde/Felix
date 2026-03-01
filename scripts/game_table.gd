@@ -5,14 +5,13 @@ extends Node3D
 @onready var players_container = $Players
 @onready var draw_pile_marker = $PositionMarkers/DrawPile
 @onready var discard_pile_marker = $PositionMarkers/DiscardPile
-@onready var table_model = $TableModel
 
 var discard_label_3d: Label3D = null
 
-# Table model configuration
-const TARGET_TABLE_RADIUS := 6.0  # Must match the gameplay radius
-const TARGET_SURFACE_Y := 0.76   # Table surface aligned with old gameplay height
-var table_surface_y := 0.76  # Y height of the table surface after positioning
+# Table surface Y — must match the baked transform in game_table.tscn
+# (GLB model scaled ×8.42, positioned so surface = 6.76, floor at Y=0)
+const TABLE_SURFACE_Y: float = 6.76
+var table_surface_y: float = TABLE_SURFACE_Y
 
 var deck_manager: DeckManager
 var card_scene = preload("res://scenes/cards/card_3d.tscn")
@@ -94,9 +93,6 @@ var scoring_manager: ScoringManager = null
 
 func _ready() -> void:
 	print("=== Felix Card Game - Game Table Ready ===")
-	
-	# Setup the 3D table model (measure, scale, position)
-	_setup_table_model()
 	
 	# Initialize components
 	view_helper = CardViewHelper.new()
@@ -243,151 +239,6 @@ func _input(event: InputEvent) -> void:
 # ===========================================
 # TABLE MODEL SETUP (GLB import)
 # ===========================================
-
-func _setup_table_model() -> void:
-	"""Measure the imported GLB model using global transforms (handles FBX axis
-	conversion, intermediate scales/rotations etc.), scale it so the TABLE mesh
-	radius matches TARGET_TABLE_RADIUS, position it so the bottom rests on floor."""
-	if not table_model:
-		push_warning("TableModel node not found – falling back to no table.")
-		return
-
-	# Ensure identity transform for measurement
-	table_model.transform = Transform3D.IDENTITY
-
-	# --- Debug: print full node tree including scale ---
-	print("\n=== Table Model Node Tree ===")
-	_print_model_tree(table_model, 0)
-
-	# --- Collect all mesh instances ---
-	var all_meshes: Array[MeshInstance3D] = []
-	_collect_mesh_instances(table_model, all_meshes)
-	if all_meshes.is_empty():
-		push_warning("No meshes found in table model!")
-		return
-
-	# --- Find the table mesh by name (contains "table", case-insensitive) ---
-	var table_mesh: MeshInstance3D = null
-	for mi in all_meshes:
-		if mi.name.to_lower().contains("table"):
-			table_mesh = mi
-			break
-
-	# --- Get world-space AABBs using global_transform (accounts for all parent transforms) ---
-	var table_world_aabb: AABB
-	if table_mesh:
-		table_world_aabb = _mesh_world_aabb(table_mesh)
-		print("\n=== Table Mesh (world space, via global_transform) ===")
-		print("  Node name    : ", table_mesh.name)
-		print("  World AABB   : pos=%s  size=%s" % [table_world_aabb.position, table_world_aabb.size])
-		print("  Global origin: ", table_mesh.global_position)
-	else:
-		push_warning("Could not find table mesh node – using full model AABB")
-		table_world_aabb = _subtree_world_aabb(table_model)
-
-	var full_world_aabb: AABB = _subtree_world_aabb(table_model)
-	print("\n=== Full Model (world space) ===")
-	print("  World AABB   : pos=%s  size=%s" % [full_world_aabb.position, full_world_aabb.size])
-
-	# --- Compute table radius (XZ plane) ---
-	var table_radius: float = maxf(table_world_aabb.size.x, table_world_aabb.size.z) / 2.0
-	print("  Table world radius: ", table_radius)
-
-	if table_radius < 0.001:
-		push_warning("Table radius is zero – cannot scale. Check GLB import.")
-		return
-
-	# --- Scale uniformly so table radius = TARGET_TABLE_RADIUS ---
-	var scale_factor: float = TARGET_TABLE_RADIUS / table_radius
-	table_model.scale = Vector3.ONE * scale_factor
-	print("  Scale factor : ", scale_factor)
-
-	# --- Position: move model so the TABLE SURFACE is at TARGET_SURFACE_Y (0.76) ---
-	# This keeps the table top at the same height as the original gameplay setup.
-	# Legs/chairs extend below floor level — the room is expanded to accommodate.
-	var table_top_before: float = table_world_aabb.position.y + table_world_aabb.size.y
-	var scaled_table_top: float = table_top_before * scale_factor
-	table_model.position = Vector3(0, TARGET_SURFACE_Y - scaled_table_top, 0)
-	table_surface_y = TARGET_SURFACE_Y
-
-	# --- Rotate 45° so chairs align with player cardinal positions (N/S/E/W) ---
-	# The GLB model places chairs at diagonals; players sit at cardinal directions.
-	table_model.rotation.y = deg_to_rad(45.0)
-
-	# Print where the model bottom ends up (for room sizing)
-	var model_bottom_world: float = full_world_aabb.position.y * scale_factor + table_model.position.y
-	print("  Table surface Y: ", table_surface_y)
-	print("  Model bottom Y : ", model_bottom_world)
-	print("  Model offset Y : ", table_model.position.y)
-
-	# --- Update draw/discard pile heights to match ---
-	if draw_pile_marker:
-		draw_pile_marker.position.y = table_surface_y + 0.01
-	if discard_pile_marker:
-		discard_pile_marker.position.y = table_surface_y + 0.01
-
-	# --- Print chair world positions after scaling (for verification) ---
-	print("\n=== Chair positions after scaling ===")
-	for mi in all_meshes:
-		if mi.name.to_lower().contains("chair"):
-			print("  %s → world pos: %s" % [mi.name, mi.global_position])
-
-	print("=== Table Model Setup Complete ===\n")
-
-# --- Helpers: world-space AABB using global_transform ---
-
-func _mesh_world_aabb(mi: MeshInstance3D) -> AABB:
-	"""Get the world-space AABB of a single MeshInstance3D, properly accounting
-	for ALL parent transforms (rotation, scale, position)."""
-	var mesh_aabb: AABB = mi.mesh.get_aabb()
-	return _transform_aabb(mi.global_transform, mesh_aabb)
-
-func _transform_aabb(xform: Transform3D, aabb: AABB) -> AABB:
-	"""Transform an AABB by a Transform3D by projecting all 8 corners."""
-	var result := AABB(xform * aabb.get_endpoint(0), Vector3.ZERO)
-	for i in range(1, 8):
-		result = result.expand(xform * aabb.get_endpoint(i))
-	return result
-
-func _subtree_world_aabb(root: Node) -> AABB:
-	"""Get the combined world-space AABB of all MeshInstance3D nodes under root."""
-	var meshes: Array[MeshInstance3D] = []
-	_collect_mesh_instances(root, meshes)
-	if meshes.is_empty():
-		return AABB()
-	var result: AABB = _mesh_world_aabb(meshes[0])
-	for i in range(1, meshes.size()):
-		result = result.merge(_mesh_world_aabb(meshes[i]))
-	return result
-
-func _collect_mesh_instances(node: Node, out: Array[MeshInstance3D]) -> void:
-	"""Recursively collect all MeshInstance3D nodes with valid meshes."""
-	if node is MeshInstance3D:
-		var mi := node as MeshInstance3D
-		if mi.mesh:
-			out.append(mi)
-	for child in node.get_children():
-		_collect_mesh_instances(child, out)
-
-func _print_model_tree(node: Node, depth: int) -> void:
-	"""Debug utility — print the node tree including position, rotation, scale."""
-	var indent := ""
-	for i in range(depth):
-		indent += "  "
-	var info := indent + node.name + " (" + node.get_class() + ")"
-	if node is Node3D:
-		var n3d := node as Node3D
-		info += " pos=" + str(n3d.position)
-		if n3d.scale != Vector3.ONE:
-			info += " scale=" + str(n3d.scale)
-		if n3d.rotation != Vector3.ZERO:
-			info += " rot=" + str(n3d.rotation)
-	if node is MeshInstance3D and (node as MeshInstance3D).mesh:
-		var aabb := (node as MeshInstance3D).mesh.get_aabb()
-		info += " mesh_aabb=" + str(aabb)
-	print(info)
-	for child in node.get_children():
-		_print_model_tree(child, depth + 1)
 
 func setup_card_piles() -> void:
 	"""Create visual representations of card piles"""
@@ -650,6 +501,9 @@ func _on_play_again_pressed() -> void:
 
 	# Hide any lingering knock buttons
 	knock_manager.hide_all_buttons()
+
+	# Clear persistent rank labels from the previous round
+	get_tree().call_group("round_end_rank_labels", "queue_free")
 	
 	# Update pile visuals
 	if draw_pile_visual:

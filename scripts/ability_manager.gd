@@ -326,6 +326,7 @@ func _queen_store_card_slot(card: Card3D, is_first: bool) -> void:
 
 func _clear_queen_state() -> void:
 	"""Reset all Queen look-and-swap state variables."""
+	_queen_remove_labels()  # Safety cleanup for 3D labels
 	table.look_and_swap_first_card = null
 	table.look_and_swap_second_card = null
 	table.look_and_swap_first_original_pos = Vector3.ZERO
@@ -343,6 +344,10 @@ func _unlock_queen_ability() -> void:
 	"""Emergency exit from the Queen ability — clean up state and end turn."""
 	_clear_queen_state()
 	table.turn_manager.end_current_turn()
+
+# 3D labels shown above the two Queen-viewed cards (cleaned up after choice).
+var _queen_label_your: Label3D = null
+var _queen_label_neighbor: Label3D = null
 
 func display_cards_for_choice() -> void:
 	"""Display both selected cards side-by-side and show swap choice UI"""
@@ -387,10 +392,55 @@ func display_cards_for_choice() -> void:
 	table.view_helper.tilt_card_towards_viewer(card2)
 	await get_tree().create_timer(0.25).timeout
 	
+	# Determine which card is yours and which is neighbor's
+	var current_player = GameManager.get_current_player()
+	var card1_is_own = (card1.owner_player == current_player)
+	
+	# Spawn 3D labels above each card
+	_queen_remove_labels()  # Safety cleanup
+	_queen_label_your = _create_card_label("Your Card")
+	_queen_label_neighbor = _create_card_label("Neighbor's Card")
+	
+	if card1_is_own:
+		card1.add_child(_queen_label_your)
+		card2.add_child(_queen_label_neighbor)
+	else:
+		card1.add_child(_queen_label_neighbor)
+		card2.add_child(_queen_label_your)
+	
+	# Hide turn UI so it doesn't overlap with swap choice UI
+	table.turn_ui.hide_ui()
+	
 	# Show swap choice UI
-	table.turn_ui.update_action("Choose whether to swap")
 	table.swap_choice_ui.show_choice()
 	print("Viewing: %s and %s" % [card1.card_data.get_short_name(), card2.card_data.get_short_name()])
+
+func _create_card_label(text: String) -> Label3D:
+	"""Create a Label3D to float at the top of a card during Queen viewing — same style as discard pile label."""
+	var label := Label3D.new()
+	label.text = text
+	label.font_size = 48
+	label.pixel_size = 0.002
+	label.outline_size = 8
+	label.modulate = Color(1, 1, 1, 1)
+	label.outline_modulate = Color(0, 0, 0, 1)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Position at the top edge of the card in Card3D local space.
+	# Card face is in XZ plane; -Z is the far (top) edge, ~half the scaled card height.
+	label.position = Vector3(0, 0.05, -0.5)
+	return label
+
+func _queen_remove_labels() -> void:
+	"""Remove the 3D ownership labels from their parent cards."""
+	if _queen_label_your and is_instance_valid(_queen_label_your):
+		_queen_label_your.queue_free()
+		_queen_label_your = null
+	if _queen_label_neighbor and is_instance_valid(_queen_label_neighbor):
+		_queen_label_neighbor.queue_free()
+		_queen_label_neighbor = null
 
 func confirm_look_and_swap() -> void:
 	"""Confirm Queen card selection and proceed to side-by-side viewing"""
@@ -764,6 +814,10 @@ func _on_swap_chosen() -> void:
 	"""Called when player chooses to swap cards in Queen ability."""
 	print("\n=== Swapping Cards ===")
 	
+	# Remove card labels and restore turn UI
+	_queen_remove_labels()
+	table.turn_ui.show_ui()
+	
 	var card1 = table.look_and_swap_first_card
 	var card2 = table.look_and_swap_second_card
 	
@@ -847,6 +901,10 @@ func _on_swap_chosen() -> void:
 func _on_no_swap_chosen() -> void:
 	"""Called when player chooses NOT to swap cards in Queen ability"""
 	print("\n=== Not Swapping - Returning Cards ===")
+	
+	# Remove card labels and restore turn UI
+	_queen_remove_labels()
+	table.turn_ui.show_ui()
 	
 	var card1 = table.look_and_swap_first_card
 	var card2 = table.look_and_swap_second_card
