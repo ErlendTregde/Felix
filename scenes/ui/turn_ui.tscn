@@ -6,47 +6,85 @@
 layer = 10
 script = ExtResource("1_turn")
 
-[node name="BottomCenter" type="VBoxContainer" parent="."]
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -300.0
-offset_top = -100.0
-offset_right = 300.0
-offset_bottom = -20.0
-grow_horizontal = 2
-grow_vertical = 0
+[node name="TopRight" type="VBoxContainer" parent="."]
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -260.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 320.0
+grow_horizontal = 0
+grow_vertical = 1
 mouse_filter = 2
+theme_override_constants/separation = 4
 
-[node name="PlayerLabel" type="Label" parent="BottomCenter"]
+[node name="PlayerLabel" type="Label" parent="TopRight"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 4
-theme_override_font_sizes/font_size = 22
-text = "Your Turn"
-horizontal_alignment = 1
-vertical_alignment = 1
+theme_override_font_sizes/font_size = 17
+text = ""
+horizontal_alignment = 2
+mouse_filter = 2
 
-[node name="ActionLabel" type="Label" parent="BottomCenter"]
+[node name="ActionsBox" type="VBoxContainer" parent="TopRight"]
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.92, 0.7, 1)
+theme_override_constants/separation = 3
+mouse_filter = 2
+
+[node name="StepLabel" type="Label" parent="TopRight"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.75, 0.35, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 3
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 13
 text = ""
-horizontal_alignment = 1
-vertical_alignment = 1
+horizontal_alignment = 2
+visible = false
+mouse_filter = 2
 
-[node name="InstructionLabel" type="Label" parent="BottomCenter"]
+[node name="TopLeft" type="VBoxContainer" parent="."]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 260.0
+offset_bottom = 140.0
+grow_horizontal = 1
+grow_vertical = 1
+mouse_filter = 2
+theme_override_constants/separation = 3
+visible = false
+
+[node name="CardNameLabel" type="Label" parent="TopLeft"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.8, 0.8, 0.8, 1)
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 17
+text = ""
+mouse_filter = 2
+
+[node name="CardScoreLabel" type="Label" parent="TopLeft"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.75, 0.75, 1)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 3
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 13
 text = ""
-horizontal_alignment = 1
-vertical_alignment = 1
-autowrap_mode = 2
+mouse_filter = 2
+
+[node name="CardAbilityLabel" type="Label" parent="TopLeft"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.75, 0.35, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 13
+text = ""
+mouse_filter = 2
+

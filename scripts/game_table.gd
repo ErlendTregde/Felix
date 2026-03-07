@@ -130,7 +130,7 @@ func _ready() -> void:
 	scoring_manager = ScoringManager.new()
 	scoring_manager.init(self)
 	add_child(scoring_manager)
-	
+
 	# Initialize deck manager
 	deck_manager = DeckManager.new()
 	add_child(deck_manager)

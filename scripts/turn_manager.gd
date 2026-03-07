@@ -43,7 +43,7 @@ func start_next_turn() -> void:
 	
 	# Update turn UI
 	table.turn_ui.show_turn(current_player_id, current_player.player_name, table.is_player_turn)
-	
+
 	# Reset turn variables
 	table.selected_card = null
 	table.drawn_card = null
@@ -177,6 +177,7 @@ func handle_draw_card() -> void:
 					pc.is_interactable = true
 		
 		table.turn_ui.update_action("Click your card to swap, OR click discard pile to use ability")
+		table.turn_ui.show_card_info(table.drawn_card.card_data)
 
 func draw_card_from_pile() -> Card3D:
 	"""Draw a card from the draw pile"""
@@ -431,7 +432,11 @@ func swap_cards(grid_card: Card3D, new_card: Card3D) -> void:
 func end_current_turn() -> void:
 	"""End the current turn and move to next player"""
 	print("Turn ended\n")
-	
+
+	# Clear drawn-card info panel and step counter
+	table.turn_ui.hide_card_info()
+	table.turn_ui.hide_step()
+
 	# Clean up
 	table.selected_card = null
 	table.drawn_card = null

@@ -24,8 +24,9 @@ func on_card_right_clicked(card: Card3D) -> void:
 	# Block while waiting for human to choose a give-card
 	if table.is_choosing_give_card:
 		return
-	# Block before the game starts
-	if GameManager.current_state != GameManager.GameState.PLAYING:
+	# Block before the game starts or after the round ends
+	if GameManager.current_state != GameManager.GameState.PLAYING \
+			and GameManager.current_state != GameManager.GameState.KNOCKED:
 		return
 	# Block if currently resolving another match
 	if table.is_processing_match:
