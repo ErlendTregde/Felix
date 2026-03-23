@@ -105,10 +105,10 @@ func request_ability_confirm(actor_seat_id: int) -> void:
 	sync_runtime_state()
 
 func request_card_click(actor_seat_id: int, card: Card3D) -> void:
-	if table.is_choosing_give_card:
+	if table.match_manager.is_choosing_give_card:
 		await request_give_card(actor_seat_id, card)
 		return
-	if table.is_executing_ability:
+	if table.ability_manager.is_executing_ability:
 		await request_ability_select(actor_seat_id, card)
 		return
 	await request_swap(actor_seat_id, card)
@@ -120,7 +120,7 @@ func request_match(actor_seat_id: int, card: Card3D) -> void:
 	sync_runtime_state()
 
 func request_give_card(actor_seat_id: int, card: Card3D) -> void:
-	if table.give_card_actor_seat_idx != actor_seat_id:
+	if table.match_manager.give_card_actor_seat_idx != actor_seat_id:
 		return
 	await table.match_manager.handle_give_card_selection(actor_seat_id, card)
 	sync_runtime_state()
@@ -145,6 +145,25 @@ func get_private_snapshot_for(seat_id: int) -> Dictionary:
 	sync_runtime_state()
 	return round_state.get_private_snapshot_for(seat_id)
 
+# TODO (Phase 3): Wire this to replace _broadcast_room_snapshot() once gameplay RPCs land.
+# Each peer receives only their own seat's card face values; opponents' cards stay hidden.
+func _broadcast_round_snapshot_filtered() -> void:
+	sync_runtime_state()
+	if not multiplayer.has_multiplayer_peer():
+		return
+	for peer_id in multiplayer.get_peers():
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = SteamRoomService.room_state.get_member(steam_id)
+		var seat_index: int = member.seat_index if member != null else -1
+		var _snapshot := round_state.get_private_snapshot_for(seat_index)
+		# _client_apply_round_snapshot.rpc_id(peer_id, _snapshot)  # Uncomment in Phase 3
+	# Also apply locally for the host
+	var local_seat := round_state.local_seat_index
+	var _local_snapshot := round_state.get_private_snapshot_for(local_seat)
+	# _client_apply_round_snapshot(_local_snapshot)  # Uncomment in Phase 3
+
 func sync_scores_from_players(players: Array[Player]) -> void:
 	for context in round_state.seat_contexts:
 		if context.seat_index >= 0 and context.seat_index < players.size():
@@ -159,9 +178,9 @@ func sync_runtime_state() -> void:
 	round_state.current_turn_seat_index = GameManager.current_player_index
 	round_state.knocker_seat_index = GameManager.knocker_id
 	round_state.final_round_remaining = GameManager.get_final_round_remaining()
-	round_state.match_claimed = table.match_claimed if table else false
-	round_state.pending_give_card_actor_seat_index = table.give_card_actor_seat_idx if table else -1
-	round_state.pending_give_card_target_seat_index = table.give_card_target_player_idx if table else -1
+	round_state.match_claimed = table.match_manager.match_claimed if table else false
+	round_state.pending_give_card_actor_seat_index = table.match_manager.give_card_actor_seat_idx if table else -1
+	round_state.pending_give_card_target_seat_index = table.match_manager.give_card_target_player_idx if table else -1
 	if table and table.deck_manager:
 		round_state.draw_pile_count = table.deck_manager.get_draw_pile_count()
 		round_state.discard_pile_count = table.deck_manager.get_discard_pile_count()

@@ -14,16 +14,20 @@ extends Node3D
 
 var discard_label_3d: Label3D = null
 
-# Table surface Y — must match the baked transform in game_table.tscn
-# (GLB model scaled ×8.42, positioned so surface = 6.76, floor at Y=0)
-const TABLE_SURFACE_Y: float = 6.76
-var table_surface_y: float = TABLE_SURFACE_Y
-const SEAT_CAMERA_RADIUS: float = 9.5
-const SEAT_CAMERA_HEIGHT_OFFSET: float = 3.2
-const SEAT_CAMERA_LOOK_HEIGHT_OFFSET: float = 0.35
-const LOCAL_FRONT_FILL_DISTANCE: float = 4.6
-const LOCAL_BACK_FILL_DISTANCE: float = 7.2
-const LOCAL_FILL_HEIGHT: float = 8.8
+## Table surface Y — must match the baked transform in game_table.tscn
+## (GLB model scaled ×8.42, positioned so surface = 6.76, floor at Y=0)
+@export_group("Table Layout")
+@export var table_surface_y: float = 6.76
+@export var seat_camera_radius: float = 9.5
+@export var seat_camera_height_offset: float = 3.2
+@export var seat_camera_look_height_offset: float = 0.35
+
+@export_group("Lighting")
+@export var local_front_fill_distance: float = 4.6
+@export var local_back_fill_distance: float = 7.2
+@export var local_fill_height: float = 8.8
+
+@export_group("")
 const SEAT_LABELS: Array[String] = ["South", "North", "West", "East"]
 const PARTICIPANT_COLORS: Array[Color] = [
 	Color(0.2, 0.7, 0.2, 1.0),
@@ -63,46 +67,11 @@ var drawn_card: Card3D = null
 var is_player_turn: bool = false
 var is_drawing: bool = false  # Prevent multiple draws per turn
 
-# Ability system variables (Phase 5)
-var is_executing_ability: bool = false
-var current_ability: CardData.AbilityType = CardData.AbilityType.NONE
-var ability_target_card: Card3D = null
-var awaiting_ability_confirmation: bool = false
-
-# Blind swap state (Jack ability)
-var blind_swap_first_card: Card3D = null
-var blind_swap_second_card: Card3D = null
-
-# Look and swap state (Queen ability)
-var look_and_swap_first_card: Card3D = null
-var look_and_swap_second_card: Card3D = null
-var look_and_swap_first_original_pos: Vector3 = Vector3.ZERO
-var look_and_swap_second_original_pos: Vector3 = Vector3.ZERO
-# Grid references and slot indices captured at selection time.
-# These are used in _on_swap_chosen / _on_no_swap_chosen so we never have to
-# re-search the grid array after cards have been moved to a viewing position.
-var look_and_swap_first_grid = null   # PlayerGrid
-var look_and_swap_first_slot: int = -1        # main-grid slot (-1 if penalty card)
-var look_and_swap_first_penalty_slot: int = -1  # penalty slot (-1 if main-grid card)
-var look_and_swap_second_grid = null  # PlayerGrid
-var look_and_swap_second_slot: int = -1       # main-grid slot (-1 if penalty card)
-var look_and_swap_second_penalty_slot: int = -1 # penalty slot (-1 if main-grid card)
-
 # Initial viewing phase state
 var initial_view_cards: Dictionary = {}  # player_idx -> [card1, card2]
 
 # Debug: Visual markers for player seating positions
 var seat_markers: Array[Node3D] = []
-
-# ======================================
-# PHASE 6: FAST REACTION MATCHING STATE
-# ======================================
-var is_processing_match: bool = false  # True while a match attempt is being resolved
-var is_choosing_give_card: bool = false  # True while picking which card to give to opponent
-var give_card_target_player_idx: int = -1  # Opponent who receives the give card
-var give_card_actor_seat_idx: int = -1  # Seat that must choose the give-card
-var give_card_needs_turn_start: bool = false  # True when start_next_turn returned early due to pending give-card
-var match_claimed: bool = false  # True after a successful match; blocks further matches until a new card reaches the discard pile from the draw pile
 
 # Component references
 var view_helper: CardViewHelper = null
@@ -251,7 +220,7 @@ func _input(event: InputEvent) -> void:
 		
 		# Flip all cards / Confirm ability viewing
 		elif event.keycode == KEY_SPACE:
-			if awaiting_ability_confirmation:
+			if ability_manager.awaiting_ability_confirmation:
 				round_controller.request_ability_confirm(local_seat_index)
 			else:
 				flip_all_cards()
@@ -543,6 +512,13 @@ func _get_participant_color(participant_id: int) -> Color:
 func get_seat_context(seat_id: int) -> SeatContext:
 	return seat_contexts[seat_id] if seat_id >= 0 and seat_id < seat_contexts.size() else null
 
+func get_player_grid(idx: int) -> PlayerGrid:
+	"""Bounds-checked accessor for player_grids. Returns null and logs an error on invalid index."""
+	if idx < 0 or idx >= player_grids.size():
+		push_error("GameTable: invalid player_grid index %d (size=%d)" % [idx, player_grids.size()])
+		return null
+	return player_grids[idx]
+
 func is_local_seat(seat_id: int) -> bool:
 	return seat_id == local_seat_index
 
@@ -582,26 +558,26 @@ func _apply_local_seat_camera_view() -> void:
 	if not camera_controller or active_view_seat < 0 or active_view_seat >= player_grids.size():
 		return
 	var seat_direction := _get_seat_direction(active_view_seat)
-	var camera_pos := seat_direction * SEAT_CAMERA_RADIUS
-	camera_pos.y = table_surface_y + SEAT_CAMERA_HEIGHT_OFFSET
-	var look_target := Vector3(0, table_surface_y + SEAT_CAMERA_LOOK_HEIGHT_OFFSET, 0)
+	var camera_pos := seat_direction * seat_camera_radius
+	camera_pos.y = table_surface_y + seat_camera_height_offset
+	var look_target := Vector3(0, table_surface_y + seat_camera_look_height_offset, 0)
 	camera_controller.set_view(camera_pos, look_target)
 
 func _apply_local_seat_lighting() -> void:
 	var seat_direction := _get_seat_direction(get_active_view_seat_index())
 	if room_fill_light:
-		room_fill_light.global_position = Vector3(0, LOCAL_FILL_HEIGHT, 0)
+		room_fill_light.global_position = Vector3(0, local_fill_height, 0)
 	if room_front_fill:
 		room_front_fill.global_position = Vector3(
-			seat_direction.x * LOCAL_FRONT_FILL_DISTANCE,
-			LOCAL_FILL_HEIGHT,
-			seat_direction.z * LOCAL_FRONT_FILL_DISTANCE
+			seat_direction.x * local_front_fill_distance,
+			local_fill_height,
+			seat_direction.z * local_front_fill_distance
 		)
 	if room_back_fill:
 		room_back_fill.global_position = Vector3(
-			seat_direction.x * LOCAL_BACK_FILL_DISTANCE,
-			LOCAL_FILL_HEIGHT,
-			seat_direction.z * LOCAL_BACK_FILL_DISTANCE
+			seat_direction.x * local_back_fill_distance,
+			local_fill_height,
+			seat_direction.z * local_back_fill_distance
 		)
 
 func get_active_view_seat_index() -> int:
@@ -717,12 +693,8 @@ func _on_play_again_pressed() -> void:
 	is_player_turn = false
 	is_drawing = false
 	is_dealing = false
-	is_executing_ability = false
-	is_processing_match = false
-	is_choosing_give_card = false
-	match_claimed = false
-	give_card_actor_seat_idx = -1
-	give_card_needs_turn_start = false
+	ability_manager.reset_state()
+	match_manager.reset_state()
 	round_controller.sync_runtime_state()
 	
 	# Start dealing

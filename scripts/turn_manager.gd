@@ -18,7 +18,7 @@ func start_next_turn() -> void:
 	var current_seat_context: SeatContext = table.get_seat_context(current_player_id)
 	
 	if not current_player:
-		print("Error: No current player!")
+		push_warning("TurnManager: start_turn called but no current player node (seat_contexts-only mode?)")
 		return
 	
 	# If game state is ROUND_END, don't start a new turn
@@ -48,13 +48,13 @@ func start_next_turn() -> void:
 	table.selected_card = null
 	table.drawn_card = null
 	table.is_drawing = false
-	table.is_executing_ability = false
-	table.current_ability = CardData.AbilityType.NONE
-	table.ability_target_card = null
-	table.awaiting_ability_confirmation = false
-	table.blind_swap_first_card = null
-	table.blind_swap_second_card = null
-	table.give_card_needs_turn_start = false
+	table.ability_manager.is_executing_ability = false
+	table.ability_manager.current_ability = CardData.AbilityType.NONE
+	table.ability_manager.ability_target_card = null
+	table.ability_manager.awaiting_ability_confirmation = false
+	table.ability_manager.blind_swap_first_card = null
+	table.ability_manager.blind_swap_second_card = null
+	table.match_manager.give_card_needs_turn_start = false
 	
 	# Disable discard pile interaction at turn start
 	if table.discard_pile_visual:
@@ -76,13 +76,13 @@ func start_next_turn() -> void:
 	# matched an opponent's card while it was the opponent's turn, and the turn then advanced
 	# before the human selected which card to give), restore that selection now and skip
 	# the normal turn-start flow until the human picks a card.
-	if table.is_choosing_give_card and table.is_local_seat(table.give_card_actor_seat_idx):
+	if table.match_manager.is_choosing_give_card and table.is_local_seat(table.match_manager.give_card_actor_seat_idx):
 		if table.draw_pile_visual:
 			table.draw_pile_visual.set_interactive(false)
 		if table.discard_pile_visual:
 			table.discard_pile_visual.set_interactive(false)
-		table.give_card_needs_turn_start = true
-		table.match_manager._start_give_card_selection(table.give_card_actor_seat_idx, table.give_card_target_player_idx)
+		table.match_manager.give_card_needs_turn_start = true
+		table.match_manager._start_give_card_selection(table.match_manager.give_card_actor_seat_idx, table.match_manager.give_card_target_player_idx)
 		return
 	
 	if table.is_player_turn:
@@ -119,7 +119,7 @@ func handle_card_selection(card: Card3D) -> void:
 		return
 	
 	# Handle ability target selection
-	if table.is_executing_ability:
+	if table.ability_manager.is_executing_ability:
 		table.ability_manager.handle_ability_target_selection(card)
 		return
 	
@@ -259,7 +259,7 @@ func play_card_to_discard(card: Card3D) -> void:
 	
 	# Add to discard pile data
 	table.deck_manager.add_to_discard(card.card_data)
-	table.match_claimed = false  # New card from draw pile — open a fresh matching window
+	table.match_manager.match_claimed = false  # New card from draw pile — open a fresh matching window
 	table.match_manager._unlock_matching()
 	
 	# Update visual
@@ -363,15 +363,14 @@ func swap_cards(grid_card: Card3D, new_card: Card3D) -> void:
 				table.discard_pile_visual.set_top_card(discarded_card_data)
 			
 			# Open matching window now that the swap is fully done
-			table.match_claimed = false
+			table.match_manager.match_claimed = false
 			table.match_manager._unlock_matching()
 			
 			print("Penalty swap complete!")
 			end_current_turn()
 			return
 		else:
-			print("Error: Card not found in grid!")
-			print("Card clicked: %s" % grid_card.card_data.get_short_name())
+			push_error("TurnManager: card not found in any grid slot — card: %s" % grid_card.card_data.get_short_name())
 			return
 	
 	print("Swapping %s with %s" % [grid_card.card_data.get_short_name(), new_card.card_data.get_short_name()])
@@ -419,7 +418,7 @@ func swap_cards(grid_card: Card3D, new_card: Card3D) -> void:
 		table.discard_pile_visual.set_top_card(discarded_card_data)
 	
 	# Open matching window now that the swap is fully done
-	table.match_claimed = false
+	table.match_manager.match_claimed = false
 	table.match_manager._unlock_matching()
 	
 	print("Swap complete!")
@@ -443,10 +442,10 @@ func end_current_turn() -> void:
 	table.selected_card = null
 	table.drawn_card = null
 	table.is_drawing = false
-	table.is_executing_ability = false
-	table.current_ability = CardData.AbilityType.NONE
-	table.ability_target_card = null
-	table.awaiting_ability_confirmation = false
+	table.ability_manager.is_executing_ability = false
+	table.ability_manager.current_ability = CardData.AbilityType.NONE
+	table.ability_manager.ability_target_card = null
+	table.ability_manager.awaiting_ability_confirmation = false
 	
 	# Disable discard pile interaction
 	if table.discard_pile_visual:

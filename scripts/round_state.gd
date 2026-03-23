@@ -1,6 +1,9 @@
 extends RefCounted
 class_name RoundState
 
+## Bumped whenever the snapshot dict schema changes so receivers can detect stale data.
+const SCHEMA_VERSION := 1
+
 var seat_contexts: Array[SeatContext] = []
 var local_seat_index: int = 0
 var current_turn_seat_index: int = 0
@@ -46,6 +49,7 @@ func get_public_snapshot() -> Dictionary:
 			public_refs.append(ref.to_public_dict())
 		cards_by_seat[seat_id] = public_refs
 	return {
+		"v": SCHEMA_VERSION,
 		"phase_name": phase_name,
 		"round_number": round_number,
 		"local_seat_index": local_seat_index,

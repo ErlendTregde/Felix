@@ -58,6 +58,11 @@ func join_lobby(lobby_id: int) -> void:
 		return
 	SteamManager.join_lobby(lobby_id)
 
+func open_invite_dialog() -> void:
+	if not is_steam_available():
+		return
+	SteamManager.open_invite_dialog()
+
 func leave_current_lobby() -> void:
 	if SteamManager == null:
 		return

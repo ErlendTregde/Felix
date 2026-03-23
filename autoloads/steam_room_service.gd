@@ -10,7 +10,7 @@ signal status_message_changed(message: String)
 signal room_error(message: String)
 signal room_transition(phase_name: String)
 
-var room_state = null
+var room_state: RoomState = null
 var entry_mode: String = ""
 var status_message: String = ""
 var _next_participant_id: int = 0
@@ -52,16 +52,19 @@ func prepare_join_entry() -> void:
 	_set_status("Joining Steam room...")
 
 func ensure_room_flow_started() -> void:
+	_log("ensure_room_flow_started: entry_mode='%s'  lobby_id=%d" % [entry_mode, int(State.lobby_data.id)])
 	if entry_mode == "host":
 		if not SteamPlatformService.is_steam_available():
 			_emit_room_error(SteamPlatformService.get_unavailable_reason())
 			return
 		if State.lobby_data.id == 0:
+			_log("Creating new friends-only lobby (max 4)")
 			SteamPlatformService.create_friends_lobby(4)
 		else:
 			_refresh_room_state_for_current_role()
 	elif entry_mode == "join":
 		if State.lobby_data.id != 0:
+			_log("Joining lobby %d" % int(State.lobby_data.id))
 			_set_status("Connecting to host...")
 			_refresh_room_state_for_current_role()
 		else:
@@ -71,7 +74,10 @@ func ensure_room_flow_started() -> void:
 	else:
 		_set_phase("IDLE")
 
-func get_room_state():
+func _log(msg: String) -> void:
+	print("[SteamRoomService] %s" % msg)
+
+func get_room_state() -> RoomState:
 	return room_state
 
 func get_status_message() -> String:
@@ -105,6 +111,7 @@ func request_start_round() -> void:
 	if not room_state.can_start_round():
 		_emit_room_error("All seated players must be ready before the round can start.")
 		return
+	_log("Starting round — %d seated players" % room_state.get_seated_member_count())
 	room_state.round_active = true
 	_set_phase("IN_ROUND")
 	_set_status("Round entered. Full networked gameplay sync lands in Phase 3.")
@@ -115,6 +122,7 @@ func request_start_round() -> void:
 func finish_active_round() -> void:
 	if not is_local_host():
 		return
+	_log("Finishing active round")
 	room_state.round_active = false
 	room_state.clear_ready_states()
 	_set_phase("WAITING")
@@ -142,6 +150,7 @@ func _set_status(message: String) -> void:
 	status_message_changed.emit(status_message)
 
 func _set_phase(phase_name: String) -> void:
+	_log("Phase: %s → %s" % [room_state.phase_name, phase_name])
 	room_state.phase_name = phase_name
 	room_transition.emit(phase_name)
 	room_state_changed.emit()
@@ -156,13 +165,14 @@ func _refresh_room_state_for_current_role() -> void:
 	room_state.host_steam_id = int(State.lobby_data.owner_id)
 	if is_local_host():
 		_rebuild_host_room_state()
-	elif room_state.phase_name == "CONNECTING":
+	elif room_state.get_phase() == RoomState.RoomPhase.CONNECTING:
 		_set_status("Waiting for room snapshot from host...")
 
 func _rebuild_host_room_state() -> void:
 	if not is_local_host():
 		return
 
+	_log("Rebuilding host room state — %d lobby members" % State.lobby_data.members.size())
 	room_state.lobby_id = SteamPlatformService.get_lobby_id()
 	room_state.room_name = SteamPlatformService.get_lobby_name()
 	room_state.host_steam_id = int(State.lobby_data.owner_id)
@@ -195,10 +205,12 @@ func _rebuild_host_room_state() -> void:
 
 	_broadcast_room_snapshot()
 
-func _create_member_state(steam_id: int, member_info: Dictionary):
+func _create_member_state(steam_id: int, member_info: Dictionary) -> RoomMemberState:
+	_log("Creating member state: steam_id=%d  name='%s'" % [steam_id, String(member_info.get("steam_username", "?"))])
 	var participant_id := _next_participant_id
 	_next_participant_id += 1
 	var seat_index := _assign_first_free_seat()
+	_log("  → assigned seat_index=%d  participant_id=%d" % [seat_index, participant_id])
 	var is_local := steam_id == SteamPlatformService.get_local_steam_id()
 	var member_state = RoomMemberStateScript.new().configure(
 		steam_id,
@@ -222,7 +234,7 @@ func _create_member_state(steam_id: int, member_info: Dictionary):
 	room_state.session_scoreboard.ensure_participant(participant_id, profile.display_name)
 	return member_state
 
-func _update_member_state(member_state, member_info: Dictionary) -> void:
+func _update_member_state(member_state: RoomMemberState, member_info: Dictionary) -> void:
 	member_state.display_name = String(member_info.get("steam_username", member_state.display_name))
 	member_state.peer_id = _find_peer_id_for_steam_id(member_state.steam_id)
 	member_state.is_host = member_state.steam_id == int(State.lobby_data.owner_id)
@@ -236,7 +248,7 @@ func _update_member_state(member_state, member_info: Dictionary) -> void:
 		profile.control_type = SeatContext.SeatControlType.LOCAL_HUMAN if member_state.is_local else SeatContext.SeatControlType.REMOTE_HUMAN
 		room_state.session_scoreboard.ensure_participant(member_state.participant_id, profile.display_name)
 
-func _apply_member_to_seat(member_state) -> void:
+func _apply_member_to_seat(member_state: RoomMemberState) -> void:
 	var seat = room_state.get_seat(member_state.seat_index)
 	if seat == null:
 		return
@@ -248,6 +260,7 @@ func _apply_member_to_seat(member_state) -> void:
 	seat.control_type = SeatContext.SeatControlType.LOCAL_HUMAN if member_state.is_local else SeatContext.SeatControlType.REMOTE_HUMAN
 
 func _remove_member(steam_id: int) -> void:
+	_log("Removing member steam_id=%d" % steam_id)
 	var member_state = room_state.members_by_steam_id.get(steam_id, null)
 	if member_state == null:
 		return
@@ -297,26 +310,43 @@ func _count_unready_seats() -> int:
 func _broadcast_room_snapshot() -> void:
 	var snapshot: Dictionary = room_state.to_dict()
 	if not multiplayer.has_multiplayer_peer():
+		_log("Broadcasting snapshot (local only, no peer)")
 		_client_apply_room_snapshot(snapshot)
 		return
+	_log("Broadcasting snapshot via RPC  phase=%s  members=%d" % [room_state.phase_name, room_state.members_by_steam_id.size()])
 	_client_apply_room_snapshot.rpc(snapshot)
+
+func _is_steam_id_seated(steam_id: int) -> bool:
+	var member = room_state.get_member(steam_id)
+	if member == null:
+		return false
+	return room_state.get_seat(member.seat_index) != null
 
 @rpc("any_peer", "reliable")
 func _server_request_ready_state(is_ready: bool) -> void:
 	if not multiplayer.is_server():
 		return
 	var sender_peer := multiplayer.get_remote_sender_id()
+	_log("RPC ready_state from peer=%d  is_ready=%s" % [sender_peer, is_ready])
 	var steam_id := int(State.lobby_data.peer_members.get(sender_peer, 0))
 	if steam_id == 0:
+		push_warning("SteamRoomService: RPC from unregistered peer %d — ignored" % sender_peer)
+		return
+	if not _is_steam_id_seated(steam_id):
+		push_warning("SteamRoomService: RPC from unseated player (steam_id %d) — ignored" % steam_id)
 		return
 	_apply_ready_change_for_steam_id(steam_id, is_ready)
 	_broadcast_room_snapshot()
 
 @rpc("authority", "call_local", "reliable")
 func _client_apply_room_snapshot(snapshot: Dictionary) -> void:
+	_log("Received room snapshot  phase=%s  members=%d" % [
+		String(snapshot.get("phase_name", "?")),
+		(snapshot.get("members_by_steam_id", {}) as Dictionary).size()
+	])
 	room_state = RoomStateScript.from_dict(snapshot)
 	room_state_changed.emit()
-	if not room_state.round_active and room_state.phase_name != "IDLE":
+	if not room_state.round_active and room_state.get_phase() != RoomState.RoomPhase.IDLE:
 		_set_status("%d / %d ready" % [_count_ready_seats(), room_state.get_seated_member_count()])
 
 @rpc("authority", "call_local", "reliable")

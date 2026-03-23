@@ -5,13 +5,14 @@ extends Node3D
 
 @onready var camera: Camera3D = $Camera3D
 
-# ── Look-around settings ──
+@export_group("Mouse Look")
 ## How far the camera can rotate horizontally (degrees)
 @export var max_yaw_deg: float = 25.0
 ## How far the camera can rotate vertically (degrees)
 @export var max_pitch_deg: float = 15.0
 ## Smoothing speed (higher = snappier, 4-8 feels natural)
 @export var smooth_speed: float = 5.0
+@export_group("")
 
 # ── Internal state ──
 var _base_transform: Transform3D   # The camera's resting transform (from scene)

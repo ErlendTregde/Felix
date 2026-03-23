@@ -4,10 +4,17 @@ class_name BotAIManager
 
 var table  # Reference to game_table
 
+@export_group("Bot Difficulty")
+## Base probability per turn that the bot decides to knock (1% default)
+@export var knock_base_chance: float = 0.01
+## Additional knock probability added each turn (0.5% default — slow ramp)
+@export var knock_increment: float = 0.005
+## Probability the bot uses an ability card rather than swapping (50% default)
+@export var ability_use_probability: float = 0.5
+@export_group("")
+
 # Knock probability: starts very low, increases each turn
 var _turn_count: int = 0
-const KNOCK_BASE_CHANCE: float = 0.01  # 1% base
-const KNOCK_INCREMENT: float = 0.005   # +0.5% per turn (very slow ramp)
 
 func init(game_table) -> void:
 	table = game_table
@@ -65,7 +72,7 @@ func execute_bot_turn(bot_id: int) -> void:
 	
 	# === KNOCK DECISION (only in PLAYING state, not during final round) ===
 	if GameManager.current_state == GameManager.GameState.PLAYING:
-		var knock_chance = KNOCK_BASE_CHANCE + (KNOCK_INCREMENT * _turn_count)
+		var knock_chance = knock_base_chance + (knock_increment * _turn_count)
 		if randf() < knock_chance:
 			print("Bot %d decides to KNOCK! (chance was %.1f%%)" % [bot_id + 1, knock_chance * 100.0])
 			# Show the bot's 3D knock button and simulate a press for visual effect
@@ -98,8 +105,8 @@ func execute_bot_turn(bot_id: int) -> void:
 	var grid = table.player_grids[bot_id]
 	var swappable = _get_all_cards(grid)
 	
-	# Random decision: 50% chance to use ability if available
-	var use_ability = has_ability and (randf() < 0.5)
+	# Random decision: use ability based on configured probability
+	var use_ability = has_ability and (randf() < ability_use_probability)
 	
 	if use_ability:
 		print("Bot deciding to use ability!")
@@ -132,7 +139,7 @@ func execute_bot_ability(bot_id: int, ability: CardData.AbilityType) -> void:
 	
 	# Add to discard pile data
 	table.deck_manager.add_to_discard(card.card_data)
-	table.match_claimed = false
+	table.match_manager.match_claimed = false
 	table.match_manager._unlock_matching()  # New card on discard — matching now allowed
 	
 	# Update visual

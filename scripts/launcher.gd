@@ -16,5 +16,4 @@ func _on_steam_multiplayer_pressed() -> void:
 	if not SteamPlatformService.is_steam_available():
 		status_label.text = SteamPlatformService.get_unavailable_reason()
 		return
-	SteamRoomService.prepare_host_entry()
-	AppFlow.open_steam_room("Creating Steam room...")
+	AppFlow.open_multiplayer_menu()

@@ -4,30 +4,69 @@ class_name AbilityManager
 
 var table  # Reference to game_table
 
+# ── Ability state (moved here from game_table.gd) ──
+var is_executing_ability: bool = false
+var current_ability: CardData.AbilityType = CardData.AbilityType.NONE
+var ability_target_card: Card3D = null
+var awaiting_ability_confirmation: bool = false
+# Blind swap state (Jack ability)
+var blind_swap_first_card: Card3D = null
+var blind_swap_second_card: Card3D = null
+# Look-and-swap state (Queen ability)
+var look_and_swap_first_card: Card3D = null
+var look_and_swap_second_card: Card3D = null
+var look_and_swap_first_original_pos: Vector3 = Vector3.ZERO
+var look_and_swap_second_original_pos: Vector3 = Vector3.ZERO
+var look_and_swap_first_grid = null   # PlayerGrid
+var look_and_swap_first_slot: int = -1
+var look_and_swap_first_penalty_slot: int = -1
+var look_and_swap_second_grid = null  # PlayerGrid
+var look_and_swap_second_slot: int = -1
+var look_and_swap_second_penalty_slot: int = -1
+
 func init(game_table) -> void:
 	table = game_table
+
+func reset_state() -> void:
+	"""Reset all ability state — call between rounds or at turn start."""
+	is_executing_ability = false
+	current_ability = CardData.AbilityType.NONE
+	ability_target_card = null
+	awaiting_ability_confirmation = false
+	blind_swap_first_card = null
+	blind_swap_second_card = null
+	look_and_swap_first_card = null
+	look_and_swap_second_card = null
+	look_and_swap_first_original_pos = Vector3.ZERO
+	look_and_swap_second_original_pos = Vector3.ZERO
+	look_and_swap_first_grid = null
+	look_and_swap_first_slot = -1
+	look_and_swap_first_penalty_slot = -1
+	look_and_swap_second_grid = null
+	look_and_swap_second_slot = -1
+	look_and_swap_second_penalty_slot = -1
 
 func handle_ability_target_selection(card: Card3D) -> void:
 	"""Handle selecting a target card for an ability"""
 	var current_player_idx = GameManager.current_player_index
 	
 	# Special handling for BLIND_SWAP (two-step selection)
-	if table.current_ability == CardData.AbilityType.BLIND_SWAP:
+	if current_ability == CardData.AbilityType.BLIND_SWAP:
 		handle_blind_swap_selection(card)
 		return
 	
 	# Special handling for LOOK_AND_SWAP (two-step selection)
-	if table.current_ability == CardData.AbilityType.LOOK_AND_SWAP:
+	if current_ability == CardData.AbilityType.LOOK_AND_SWAP:
 		handle_look_and_swap_selection(card)
 		return
 	
 	# Check if the selected card is valid for the current ability
-	if table.current_ability == CardData.AbilityType.LOOK_OWN:
+	if current_ability == CardData.AbilityType.LOOK_OWN:
 		# For look_own, card must belong to current player
 		if card.owner_seat_id != current_player_idx:
 			print("Select one of YOUR cards!")
 			return
-	elif table.current_ability == CardData.AbilityType.LOOK_OPPONENT:
+	elif current_ability == CardData.AbilityType.LOOK_OPPONENT:
 		# For look_opponent, card must belong to a NEIGHBOR (not own, not across)
 		var neighbors = table.view_helper.get_neighbors(current_player_idx)
 		# Search both main slots AND penalty cards
@@ -40,7 +79,7 @@ func handle_ability_target_selection(card: Card3D) -> void:
 			return
 	
 	# Found valid target
-	table.ability_target_card = card
+	ability_target_card = card
 	card.is_interactable = false  # Prevent re-clicking the selected card
 	
 	# Switch selected card to darker "confirmed" cyan and lock all others
@@ -87,7 +126,7 @@ func handle_ability_target_selection(card: Card3D) -> void:
 	
 	# Update UI
 	table.turn_ui.update_action("Press SPACE to confirm")
-	table.awaiting_ability_confirmation = true
+	awaiting_ability_confirmation = true
 	
 	print("Viewing: %s" % card.card_data.get_short_name())
 
@@ -106,12 +145,12 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 		return
 
 	# STEP 1 - No first card selected yet
-	if table.blind_swap_first_card == null:
-		table.blind_swap_first_card = card
+	if blind_swap_first_card == null:
+		blind_swap_first_card = card
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.blind_swap_first_card == card:  # Guard: may have been replaced by a faster click
+		if blind_swap_first_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("First card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			if is_own_card:
@@ -121,27 +160,27 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 		return
 
 	# Clicking the already-selected first card - ignore
-	if card == table.blind_swap_first_card:
+	if card == blind_swap_first_card:
 		return
 
 	# Find ownership of the currently selected first card
-	var first_owner_idx = table._find_card_owner_idx(table.blind_swap_first_card)
+	var first_owner_idx = table._find_card_owner_idx(blind_swap_first_card)
 	var first_is_own = (first_owner_idx == current_player_idx)
 
 	# RE-SELECT FIRST CARD: same ownership type as current first card - switch to new card
 	if is_own_card == first_is_own:
 		# If second was also picked, deselect it too and reset step 2
-		if table.blind_swap_second_card != null:
-			_blind_swap_deselect_card(table.blind_swap_second_card)
-			table.blind_swap_second_card = null
-			table.awaiting_ability_confirmation = false
+		if blind_swap_second_card != null:
+			_blind_swap_deselect_card(blind_swap_second_card)
+			blind_swap_second_card = null
+			awaiting_ability_confirmation = false
 		# Deselect old first card, select new one
-		_blind_swap_deselect_card(table.blind_swap_first_card)
-		table.blind_swap_first_card = card
+		_blind_swap_deselect_card(blind_swap_first_card)
+		blind_swap_first_card = card
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.blind_swap_first_card == card:  # Guard: may have been replaced by a faster click
+		if blind_swap_first_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("First card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			if is_own_card:
@@ -151,32 +190,32 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 		return
 
 	# STEP 2 - No second card selected yet (clicked card has opposite ownership = valid second pick)
-	if table.blind_swap_second_card == null:
-		table.blind_swap_second_card = card
+	if blind_swap_second_card == null:
+		blind_swap_second_card = card
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
+		if blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			table.turn_ui.update_action("Press SPACE to swap cards")
-			table.awaiting_ability_confirmation = true
+			awaiting_ability_confirmation = true
 		return
 
 	# Clicking the already-selected second card - ignore
-	if card == table.blind_swap_second_card:
+	if card == blind_swap_second_card:
 		return
 
 	# RE-SELECT SECOND CARD: same ownership type as current second card - switch to new card
-	var second_owner_idx = table._find_card_owner_idx(table.blind_swap_second_card)
+	var second_owner_idx = table._find_card_owner_idx(blind_swap_second_card)
 	var second_is_own = (second_owner_idx == current_player_idx)
 	if is_own_card == second_is_own:
-		_blind_swap_deselect_card(table.blind_swap_second_card)
-		table.blind_swap_second_card = card
+		_blind_swap_deselect_card(blind_swap_second_card)
+		blind_swap_second_card = card
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
+		if blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			table.turn_ui.update_action("Press SPACE to swap cards")
@@ -208,14 +247,14 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		return
 
 	# STEP 1 - No first card selected yet
-	if table.look_and_swap_first_card == null:
-		table.look_and_swap_first_card = card
-		table.look_and_swap_first_original_pos = card.base_position
+	if look_and_swap_first_card == null:
+		look_and_swap_first_card = card
+		look_and_swap_first_original_pos = card.base_position
 		_queen_store_card_slot(card, true)
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.look_and_swap_first_card == card:  # Guard: may have been replaced by a faster click
+		if look_and_swap_first_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("First card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			if is_own_card:
@@ -225,29 +264,29 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		return
 
 	# Clicking the already-selected first card - ignore
-	if card == table.look_and_swap_first_card:
+	if card == look_and_swap_first_card:
 		return
 
 	# Find ownership of the currently selected first card
-	var first_owner_idx = table._find_card_owner_idx(table.look_and_swap_first_card)
+	var first_owner_idx = table._find_card_owner_idx(look_and_swap_first_card)
 	var first_is_own = (first_owner_idx == current_player_idx)
 
 	# RE-SELECT FIRST CARD: same ownership type as current first card - switch to new card
 	if is_own_card == first_is_own:
 		# If second was also picked, deselect it too and reset step 2
-		if table.look_and_swap_second_card != null:
-			_look_and_swap_deselect_card(table.look_and_swap_second_card)
-			table.look_and_swap_second_card = null
-			table.awaiting_ability_confirmation = false
+		if look_and_swap_second_card != null:
+			_look_and_swap_deselect_card(look_and_swap_second_card)
+			look_and_swap_second_card = null
+			awaiting_ability_confirmation = false
 		# Deselect old first card, select new one
-		_look_and_swap_deselect_card(table.look_and_swap_first_card)
-		table.look_and_swap_first_card = card
-		table.look_and_swap_first_original_pos = card.base_position
+		_look_and_swap_deselect_card(look_and_swap_first_card)
+		look_and_swap_first_card = card
+		look_and_swap_first_original_pos = card.base_position
 		_queen_store_card_slot(card, true)
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.look_and_swap_first_card == card:  # Guard: may have been replaced by a faster click
+		if look_and_swap_first_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("First card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			if is_own_card:
@@ -257,36 +296,36 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		return
 
 	# STEP 2 - No second card selected yet (clicked card has opposite ownership = valid second pick)
-	if table.look_and_swap_second_card == null:
-		table.look_and_swap_second_card = card
-		table.look_and_swap_second_original_pos = card.base_position
+	if look_and_swap_second_card == null:
+		look_and_swap_second_card = card
+		look_and_swap_second_original_pos = card.base_position
 		_queen_store_card_slot(card, false)
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
+		if look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			table.turn_ui.update_action("Press SPACE to view cards")
-			table.awaiting_ability_confirmation = true
+			awaiting_ability_confirmation = true
 		return
 
 	# Clicking the already-selected second card - ignore
-	if card == table.look_and_swap_second_card:
+	if card == look_and_swap_second_card:
 		return
 
 	# RE-SELECT SECOND CARD: same ownership type as current second card - switch to new card
-	var second_owner_idx = table._find_card_owner_idx(table.look_and_swap_second_card)
+	var second_owner_idx = table._find_card_owner_idx(look_and_swap_second_card)
 	var second_is_own = (second_owner_idx == current_player_idx)
 	if is_own_card == second_is_own:
-		_look_and_swap_deselect_card(table.look_and_swap_second_card)
-		table.look_and_swap_second_card = card
-		table.look_and_swap_second_original_pos = card.base_position
+		_look_and_swap_deselect_card(look_and_swap_second_card)
+		look_and_swap_second_card = card
+		look_and_swap_second_original_pos = card.base_position
 		_queen_store_card_slot(card, false)
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
 		await get_tree().create_timer(0.16).timeout
-		if table.look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
+		if look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 			table.turn_ui.update_action("Press SPACE to view cards")
@@ -301,42 +340,42 @@ func _queen_store_card_slot(card: Card3D, is_first: bool) -> void:
 		for j in range(4):
 			if grid.get_card_at(j) == card:
 				if is_first:
-					table.look_and_swap_first_grid = grid
-					table.look_and_swap_first_slot = j
-					table.look_and_swap_first_penalty_slot = -1
+					look_and_swap_first_grid = grid
+					look_and_swap_first_slot = j
+					look_and_swap_first_penalty_slot = -1
 				else:
-					table.look_and_swap_second_grid = grid
-					table.look_and_swap_second_slot = j
-					table.look_and_swap_second_penalty_slot = -1
+					look_and_swap_second_grid = grid
+					look_and_swap_second_slot = j
+					look_and_swap_second_penalty_slot = -1
 				return
 		# Search penalty slots
 		for j in range(grid.penalty_cards.size()):
 			if grid.penalty_cards[j] == card:
 				if is_first:
-					table.look_and_swap_first_grid = grid
-					table.look_and_swap_first_slot = -1
-					table.look_and_swap_first_penalty_slot = j
+					look_and_swap_first_grid = grid
+					look_and_swap_first_slot = -1
+					look_and_swap_first_penalty_slot = j
 				else:
-					table.look_and_swap_second_grid = grid
-					table.look_and_swap_second_slot = -1
-					table.look_and_swap_second_penalty_slot = j
+					look_and_swap_second_grid = grid
+					look_and_swap_second_slot = -1
+					look_and_swap_second_penalty_slot = j
 				return
 
 func _clear_queen_state() -> void:
 	"""Reset all Queen look-and-swap state variables."""
 	_queen_remove_labels()  # Safety cleanup for 3D labels
-	table.look_and_swap_first_card = null
-	table.look_and_swap_second_card = null
-	table.look_and_swap_first_original_pos = Vector3.ZERO
-	table.look_and_swap_second_original_pos = Vector3.ZERO
-	table.look_and_swap_first_grid = null
-	table.look_and_swap_first_slot = -1
-	table.look_and_swap_first_penalty_slot = -1
-	table.look_and_swap_second_grid = null
-	table.look_and_swap_second_slot = -1
-	table.look_and_swap_second_penalty_slot = -1
-	table.is_executing_ability = false
-	table.current_ability = CardData.AbilityType.NONE
+	look_and_swap_first_card = null
+	look_and_swap_second_card = null
+	look_and_swap_first_original_pos = Vector3.ZERO
+	look_and_swap_second_original_pos = Vector3.ZERO
+	look_and_swap_first_grid = null
+	look_and_swap_first_slot = -1
+	look_and_swap_first_penalty_slot = -1
+	look_and_swap_second_grid = null
+	look_and_swap_second_slot = -1
+	look_and_swap_second_penalty_slot = -1
+	is_executing_ability = false
+	current_ability = CardData.AbilityType.NONE
 
 func _unlock_queen_ability() -> void:
 	"""Emergency exit from the Queen ability — clean up state and end turn."""
@@ -351,8 +390,8 @@ func display_cards_for_choice() -> void:
 	"""Display both selected cards side-by-side and show swap choice UI"""
 	table.turn_ui.update_action("Viewing cards...")
 	
-	var card1 = table.look_and_swap_first_card
-	var card2 = table.look_and_swap_second_card
+	var card1 = look_and_swap_first_card
+	var card2 = look_and_swap_second_card
 	
 	# Unlock elevation so we can move them
 	card1.is_elevation_locked = false
@@ -442,19 +481,19 @@ func _queen_remove_labels() -> void:
 
 func confirm_look_and_swap() -> void:
 	"""Confirm Queen card selection and proceed to side-by-side viewing"""
-	table.awaiting_ability_confirmation = false
+	awaiting_ability_confirmation = false
 	await display_cards_for_choice()
 
 func confirm_blind_swap() -> void:
 	"""Execute the blind swap between two selected cards (supports main grid and penalty slots)"""
-	if not table.blind_swap_first_card or not table.blind_swap_second_card:
-		print("Error: Both cards must be selected!")
+	if not blind_swap_first_card or not blind_swap_second_card:
+		push_error("AbilityManager: confirm_blind_swap called without both cards selected")
 		return
 	
 	print("\n=== Executing Blind Swap ===")
 	
-	var card1 = table.blind_swap_first_card
-	var card2 = table.blind_swap_second_card
+	var card1 = blind_swap_first_card
+	var card2 = blind_swap_second_card
 	
 	# Find grid, main slot index, and penalty slot index for both cards.
 	# Exactly one of main_slot / penalty_slot will be >= 0 for each card.
@@ -478,9 +517,9 @@ func confirm_blind_swap() -> void:
 				card2_grid = grid; card2_penalty_slot = i
 	
 	if not card1_grid or not card2_grid:
-		print("Error: Could not find card grids!")
+		push_error("AbilityManager: could not find grid for one or both swap cards")
 		# Re-enable SPACE confirm so player can retry
-		table.awaiting_ability_confirmation = true
+		awaiting_ability_confirmation = true
 		return
 	
 	print("Swapping: %s (Player %d) ↔ %s (Player %d)" % [
@@ -558,10 +597,10 @@ func confirm_blind_swap() -> void:
 			c.set_highlighted(false)
 			c.is_interactable = false
 	
-	table.blind_swap_first_card = null
-	table.blind_swap_second_card = null
-	table.is_executing_ability = false
-	table.current_ability = CardData.AbilityType.NONE
+	blind_swap_first_card = null
+	blind_swap_second_card = null
+	is_executing_ability = false
+	current_ability = CardData.AbilityType.NONE
 	
 	table.turn_manager.end_current_turn()
 
@@ -598,26 +637,26 @@ func _queen_set_slot(grid: PlayerGrid, main_slot: int, penalty_slot: int, card: 
 
 func confirm_ability_viewing() -> void:
 	"""Confirm that player has seen the ability target and flip it back"""
-	if not table.awaiting_ability_confirmation:
+	if not awaiting_ability_confirmation:
 		return
 	# Clear immediately to prevent double-fire from a second SPACE press
-	table.awaiting_ability_confirmation = false
+	awaiting_ability_confirmation = false
 	
 	# Route to blind swap confirmation if that's the current ability
-	if table.current_ability == CardData.AbilityType.BLIND_SWAP:
+	if current_ability == CardData.AbilityType.BLIND_SWAP:
 		confirm_blind_swap()
 		return
 
 	# Route to Queen viewing confirmation if that's the current ability
-	if table.current_ability == CardData.AbilityType.LOOK_AND_SWAP:
+	if current_ability == CardData.AbilityType.LOOK_AND_SWAP:
 		confirm_look_and_swap()
 		return
 	
 	# For viewing abilities (LOOK_OWN, LOOK_OPPONENT)
-	if not table.ability_target_card:
+	if not ability_target_card:
 		return
 	
-	var card = table.ability_target_card
+	var card = ability_target_card
 	
 	# Find which grid and position the card is in (main slots AND penalty slots)
 	var card_grid = null
@@ -641,7 +680,7 @@ func confirm_ability_viewing() -> void:
 			break
 	
 	if not card_grid:
-		print("Error: Could not find card's grid!")
+		push_error("AbilityManager: could not find grid for returned card")
 		return
 	
 	# Reset rotation to zero (grid provides orientation)
@@ -687,10 +726,10 @@ func confirm_ability_viewing() -> void:
 			c.is_interactable = false
 	
 	# Clean up
-	table.awaiting_ability_confirmation = false
-	table.ability_target_card = null
-	table.is_executing_ability = false
-	table.current_ability = CardData.AbilityType.NONE
+	awaiting_ability_confirmation = false
+	ability_target_card = null
+	is_executing_ability = false
+	current_ability = CardData.AbilityType.NONE
 	
 	# End turn
 	table.turn_manager.end_current_turn()
@@ -700,8 +739,8 @@ func execute_ability_look_own() -> void:
 	print("\n=== Ability: Look at Own Card ===")
 	table.turn_ui.update_action("Select which card to look at")
 	
-	table.is_executing_ability = true
-	table.current_ability = CardData.AbilityType.LOOK_OWN
+	is_executing_ability = true
+	current_ability = CardData.AbilityType.LOOK_OWN
 	var grid = table.player_grids[GameManager.current_player_index]
 	
 	# Highlight own cards + penalty cards (cyan = selectable)
@@ -721,8 +760,8 @@ func execute_ability_look_opponent() -> void:
 	"""Execute 9/10 ability: Look at one of opponent's cards"""
 	print("\n=== Ability: Look at Opponent's Card ===")
 	
-	table.is_executing_ability = true
-	table.current_ability = CardData.AbilityType.LOOK_OPPONENT
+	is_executing_ability = true
+	current_ability = CardData.AbilityType.LOOK_OPPONENT
 	
 	table.turn_ui.update_action("Select opponent's card to look at")
 	
@@ -730,7 +769,9 @@ func execute_ability_look_opponent() -> void:
 	var current_player = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player)
 	for neighbor_idx in neighbors:
-		var opponent_grid = table.player_grids[neighbor_idx]
+		var opponent_grid = table.get_player_grid(neighbor_idx)
+		if not opponent_grid:
+			continue
 		for j in range(4):
 			var card = opponent_grid.get_card_at(j)
 			if card:
@@ -739,7 +780,7 @@ func execute_ability_look_opponent() -> void:
 		for card in opponent_grid.penalty_cards:
 			card.set_highlighted(true)
 			card.is_interactable = true
-	
+
 	# Wait for player to select a card (handled in handle_ability_target_selection)
 	# The flow continues in confirm_ability_viewing() when SPACE is pressed
 
@@ -748,26 +789,29 @@ func execute_ability_blind_swap() -> void:
 	print("\n=== Ability: Blind Swap ===")
 	table.turn_ui.update_action("Select YOUR card to swap")
 	
-	table.is_executing_ability = true
-	table.current_ability = CardData.AbilityType.BLIND_SWAP
+	is_executing_ability = true
+	current_ability = CardData.AbilityType.BLIND_SWAP
 	
 	var current_player_idx = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player_idx)
 	
 	# Highlight own cards + penalty cards (cyan = your cards to swap)
-	var own_grid = table.player_grids[current_player_idx]
-	for i in range(4):
-		var card = own_grid.get_card_at(i)
-		if card:
+	var own_grid = table.get_player_grid(current_player_idx)
+	if own_grid:
+		for i in range(4):
+			var card = own_grid.get_card_at(i)
+			if card:
+				card.set_highlighted(true)
+				card.is_interactable = true
+		for card in own_grid.penalty_cards:
 			card.set_highlighted(true)
 			card.is_interactable = true
-	for card in own_grid.penalty_cards:
-		card.set_highlighted(true)
-		card.is_interactable = true
-	
+
 	# Highlight neighbor cards + penalty cards (cyan = neighbor cards to swap with)
 	for neighbor_idx in neighbors:
-		var neighbor_grid = table.player_grids[neighbor_idx]
+		var neighbor_grid = table.get_player_grid(neighbor_idx)
+		if not neighbor_grid:
+			continue
 		for i in range(4):
 			var card = neighbor_grid.get_card_at(i)
 			if card:
@@ -782,26 +826,29 @@ func execute_ability_look_and_swap() -> void:
 	print("\n=== Ability: Look and Swap ===")
 	table.turn_ui.update_action("Select YOUR card to look at")
 	
-	table.is_executing_ability = true
-	table.current_ability = CardData.AbilityType.LOOK_AND_SWAP
+	is_executing_ability = true
+	current_ability = CardData.AbilityType.LOOK_AND_SWAP
 	
 	var current_player_idx = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player_idx)
 	
 	# Highlight own cards + penalty cards (cyan = your card to view)
-	var own_grid = table.player_grids[current_player_idx]
-	for i in range(4):
-		var card = own_grid.get_card_at(i)
-		if card:
+	var own_grid = table.get_player_grid(current_player_idx)
+	if own_grid:
+		for i in range(4):
+			var card = own_grid.get_card_at(i)
+			if card:
+				card.set_highlighted(true)
+				card.is_interactable = true
+		for card in own_grid.penalty_cards:
 			card.set_highlighted(true)
 			card.is_interactable = true
-	for card in own_grid.penalty_cards:
-		card.set_highlighted(true)
-		card.is_interactable = true
-	
+
 	# Highlight neighbor cards + penalty cards (cyan = neighbor card to view)
 	for neighbor_idx in neighbors:
-		var neighbor_grid = table.player_grids[neighbor_idx]
+		var neighbor_grid = table.get_player_grid(neighbor_idx)
+		if not neighbor_grid:
+			continue
 		for i in range(4):
 			var card = neighbor_grid.get_card_at(i)
 			if card:
@@ -819,17 +866,17 @@ func _on_swap_chosen() -> void:
 	_queen_remove_labels()
 	table.turn_ui.show_ui()
 	
-	var card1 = table.look_and_swap_first_card
-	var card2 = table.look_and_swap_second_card
+	var card1 = look_and_swap_first_card
+	var card2 = look_and_swap_second_card
 	
 	# Use the grid/slot references captured at selection time — avoids a re-search
 	# failure if cards have since been moved to the viewing position.
-	var card1_grid = table.look_and_swap_first_grid
-	var card1_position = table.look_and_swap_first_slot           # -1 if penalty card
-	var card1_penalty = table.look_and_swap_first_penalty_slot    # -1 if main-grid card
-	var card2_grid = table.look_and_swap_second_grid
-	var card2_position = table.look_and_swap_second_slot          # -1 if penalty card
-	var card2_penalty = table.look_and_swap_second_penalty_slot   # -1 if main-grid card
+	var card1_grid = look_and_swap_first_grid
+	var card1_position = look_and_swap_first_slot           # -1 if penalty card
+	var card1_penalty = look_and_swap_first_penalty_slot    # -1 if main-grid card
+	var card2_grid = look_and_swap_second_grid
+	var card2_position = look_and_swap_second_slot          # -1 if penalty card
+	var card2_penalty = look_and_swap_second_penalty_slot   # -1 if main-grid card
 	
 	if not card1_grid or not card2_grid \
 			or (card1_position == -1 and card1_penalty == -1) \
@@ -910,14 +957,14 @@ func _on_no_swap_chosen() -> void:
 	_queen_remove_labels()
 	table.turn_ui.show_ui()
 	
-	var card1 = table.look_and_swap_first_card
-	var card2 = table.look_and_swap_second_card
-	var grid1 = table.look_and_swap_first_grid
-	var slot1 = table.look_and_swap_first_slot
-	var pen1 = table.look_and_swap_first_penalty_slot
-	var grid2 = table.look_and_swap_second_grid
-	var slot2 = table.look_and_swap_second_slot
-	var pen2 = table.look_and_swap_second_penalty_slot
+	var card1 = look_and_swap_first_card
+	var card2 = look_and_swap_second_card
+	var grid1 = look_and_swap_first_grid
+	var slot1 = look_and_swap_first_slot
+	var pen1 = look_and_swap_first_penalty_slot
+	var grid2 = look_and_swap_second_grid
+	var slot2 = look_and_swap_second_slot
+	var pen2 = look_and_swap_second_penalty_slot
 	
 	# Flip cards back face-down first
 	if card1.is_face_up:
@@ -927,8 +974,8 @@ func _on_no_swap_chosen() -> void:
 	await get_tree().create_timer(0.35).timeout
 	
 	# Slide back to original grid slot positions
-	card1.move_to(table.look_and_swap_first_original_pos, 0.4, false)
-	card2.move_to(table.look_and_swap_second_original_pos, 0.4, false)
+	card1.move_to(look_and_swap_first_original_pos, 0.4, false)
+	card2.move_to(look_and_swap_second_original_pos, 0.4, false)
 	await get_tree().create_timer(0.45).timeout
 	
 	# Reparent cards back to their original grids so rotation is inherited correctly

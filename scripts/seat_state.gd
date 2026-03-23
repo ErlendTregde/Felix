@@ -10,7 +10,7 @@ var is_ready: bool = false
 var control_type: SeatContext.SeatControlType = SeatContext.SeatControlType.REMOTE_HUMAN
 var is_local: bool = false
 
-func configure(new_seat_index: int, new_seat_label: String):
+func configure(new_seat_index: int, new_seat_label: String) -> SeatState:
 	seat_index = new_seat_index
 	seat_label = new_seat_label
 	return self
@@ -38,7 +38,7 @@ func to_dict() -> Dictionary:
 		"is_local": is_local,
 	}
 
-static func from_dict(data: Dictionary):
+static func from_dict(data: Dictionary) -> SeatState:
 	var state = load("res://scripts/seat_state.gd").new().configure(
 		int(data.get("seat_index", -1)),
 		String(data.get("seat_label", ""))

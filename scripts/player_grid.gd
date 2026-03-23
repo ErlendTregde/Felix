@@ -116,7 +116,7 @@ func setup_grid_positions() -> void:
 func add_card(card: Card3D, position_index: int, animate: bool = true) -> void:
 	"""Add a card to a specific grid position"""
 	if position_index < 0 or position_index >= 4:
-		print("Error: Invalid position index %d" % position_index)
+		push_error("PlayerGrid: invalid position index %d" % position_index)
 		return
 	
 	# Remove existing card if any

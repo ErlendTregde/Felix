@@ -216,7 +216,7 @@ func start_initial_viewing_phase() -> void:
 
 	# Show Ready button for the human player
 	var local_player: Player = table.players[table.local_seat_index] if table.local_seat_index < table.players.size() else null
-	var local_player_name := local_player.player_name if local_player != null else ""
+	var local_player_name := local_player.player_name if local_player != null else "You"
 	table.viewing_ui.show_for_player(
 		table.local_seat_index,
 		table.num_players,

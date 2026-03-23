@@ -36,6 +36,10 @@ enum AbilityType {
 	LOOK_AND_SWAP   # Queen: Look at own + opponent, optionally swap
 }
 
+## Stable unique ID assigned by DeckManager at card creation time.
+## Persists across round resets and is safe to use in network RPCs.
+var card_id: int = -1
+
 @export var suit: Suit = Suit.HEARTS
 @export var rank: Rank = Rank.ACE
 @export var is_red_king: bool = false  # Special flag for red kings (+25 points)

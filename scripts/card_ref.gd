@@ -10,7 +10,8 @@ var is_face_up: bool = false
 
 func configure(card: Card3D, owner_seat_id: int, slot_index: int, is_penalty: bool) -> CardRef:
 	slot_ref = SlotRef.new().configure(owner_seat_id, slot_index, is_penalty)
-	instance_id = card.get_instance_id()
+	# Use the stable card_id assigned by DeckManager — safe across round resets and network RPCs.
+	instance_id = card.card_data.card_id if card.card_data else -1
 	if card.card_data:
 		short_name = card.card_data.get_short_name()
 		rank = card.card_data.rank

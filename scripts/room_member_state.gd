@@ -18,7 +18,7 @@ func configure(
 	new_display_name: String,
 	new_is_host: bool,
 	new_is_local: bool
-) :
+) -> RoomMemberState:
 	steam_id = new_steam_id
 	peer_id = new_peer_id
 	participant_id = new_participant_id
@@ -40,7 +40,7 @@ func to_dict() -> Dictionary:
 		"is_ready": is_ready,
 	}
 
-static func from_dict(data: Dictionary):
+static func from_dict(data: Dictionary) -> RoomMemberState:
 	var state = load("res://scripts/room_member_state.gd").new().configure(
 		int(data.get("steam_id", 0)),
 		int(data.get("peer_id", 0)),

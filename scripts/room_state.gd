@@ -1,6 +1,12 @@
 extends RefCounted
 class_name RoomState
 
+## Bumped whenever the dict schema changes so from_dict() can reject stale snapshots.
+const SCHEMA_VERSION := 1
+
+## Canonical phase values. Use get_phase() to compare instead of raw strings.
+enum RoomPhase { IDLE, CONNECTING, WAITING, IN_ROUND }
+
 const DEFAULT_SEAT_LABELS: Array[String] = ["South", "North", "West", "East"]
 const ParticipantProfileScript = preload("res://scripts/participant_profile.gd")
 const RoomMemberStateScript = preload("res://scripts/room_member_state.gd")
@@ -14,7 +20,7 @@ var phase_name: String = "IDLE"
 var round_active: bool = false
 var members_by_steam_id: Dictionary = {}
 var participants_by_id: Dictionary = {}
-var seat_states: Array = []
+var seat_states: Array[SeatState] = []
 var session_scoreboard = null
 
 func _init() -> void:
@@ -37,10 +43,18 @@ func ensure_default_seats() -> void:
 	for seat_index in range(DEFAULT_SEAT_LABELS.size()):
 		seat_states.append(SeatStateScript.new().configure(seat_index, DEFAULT_SEAT_LABELS[seat_index]))
 
-func get_member(steam_id: int):
+func get_phase() -> RoomPhase:
+	"""Parse phase_name string into the RoomPhase enum. Falls back to IDLE on unknown values."""
+	match phase_name:
+		"CONNECTING": return RoomPhase.CONNECTING
+		"WAITING": return RoomPhase.WAITING
+		"IN_ROUND": return RoomPhase.IN_ROUND
+		_: return RoomPhase.IDLE
+
+func get_member(steam_id: int) -> RoomMemberState:
 	return members_by_steam_id.get(steam_id, null)
 
-func get_seat(seat_index: int):
+func get_seat(seat_index: int) -> SeatState:
 	if seat_index < 0 or seat_index >= seat_states.size():
 		return null
 	return seat_states[seat_index]
@@ -84,6 +98,7 @@ func to_dict() -> Dictionary:
 	for seat in seat_states:
 		seats.append(seat.to_dict())
 	return {
+		"v": SCHEMA_VERSION,
 		"lobby_id": lobby_id,
 		"room_name": room_name,
 		"host_steam_id": host_steam_id,
@@ -95,7 +110,10 @@ func to_dict() -> Dictionary:
 		"session_scoreboard": session_scoreboard.to_dict(),
 	}
 
-static func from_dict(data: Dictionary):
+static func from_dict(data: Dictionary) -> RoomState:
+	var incoming_version := int(data.get("v", 0))
+	if incoming_version != SCHEMA_VERSION:
+		push_warning("RoomState schema mismatch: got v%d, expected v%d — snapshot may be stale" % [incoming_version, SCHEMA_VERSION])
 	var state = load("res://scripts/room_state.gd").new()
 	state.lobby_id = int(data.get("lobby_id", 0))
 	state.room_name = String(data.get("room_name", ""))

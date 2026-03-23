@@ -5,31 +5,49 @@ class_name MatchManager
 
 var table  # Reference to game_table
 
+# ── Match state (moved here from game_table.gd) ──
+var is_processing_match: bool = false
+var is_choosing_give_card: bool = false
+var give_card_target_player_idx: int = -1
+var give_card_actor_seat_idx: int = -1
+var give_card_needs_turn_start: bool = false
+## True after a successful match; blocks further matches until a new card is drawn
+var match_claimed: bool = false
+
 func init(game_table) -> void:
 	table = game_table
+
+func reset_state() -> void:
+	"""Reset all match state — call between rounds or at turn start."""
+	is_processing_match = false
+	is_choosing_give_card = false
+	give_card_target_player_idx = -1
+	give_card_actor_seat_idx = -1
+	give_card_needs_turn_start = false
+	match_claimed = false
 
 func _unlock_matching() -> void:
 	"""Called whenever a match attempt finishes (success or fail).
 	NOTE: Does NOT touch is_choosing_give_card / give_card_target_player_idx.
 	Those are managed exclusively by _handle_opponent_card_match (set) and
 	handle_give_card_selection (clear)."""
-	table.is_processing_match = false
+	is_processing_match = false
 	print("[Match] Match processing complete")
 
 func on_card_right_clicked(actor_seat_id: int, card: Card3D) -> void:
 	"""Right-click a card to attempt to match it against the current discard pile top card."""
 	# Block during ability execution
-	if table.is_executing_ability:
+	if table.ability_manager.is_executing_ability:
 		return
 	# Block while waiting for human to choose a give-card
-	if table.is_choosing_give_card:
+	if is_choosing_give_card:
 		return
 	# Block before the game starts or after the round ends
 	if GameManager.current_state != GameManager.GameState.PLAYING \
 			and GameManager.current_state != GameManager.GameState.KNOCKED:
 		return
 	# Block if currently resolving another match
-	if table.is_processing_match:
+	if is_processing_match:
 		print("[Match] Already resolving a match")
 		return
 	# Need a card on the discard pile
@@ -38,7 +56,7 @@ func on_card_right_clicked(actor_seat_id: int, card: Card3D) -> void:
 		print("[Match] No card on discard pile")
 		return
 	# Block if this discard card has already been claimed this round (no penalty!)
-	if table.match_claimed:
+	if match_claimed:
 		print("[Match] Too late — this card was already matched this round")
 		return
 	print("[Match] Right-click attempt: %s vs top discard %s" % [
@@ -54,7 +72,7 @@ func _attempt_match(actor_seat_id: int, card: Card3D) -> void:
 		return
 	
 	# Lock immediately so two simultaneous right-clicks can't both resolve
-	table.is_processing_match = true
+	is_processing_match = true
 	
 	# Determine outcome and owner BEFORE any animation (card still in grid)
 	var matches = (card.card_data.rank == top_discard.rank)
@@ -62,7 +80,7 @@ func _attempt_match(actor_seat_id: int, card: Card3D) -> void:
 	
 	# Guard: card must belong to someone (not a floating drawn card)
 	if owner_idx == -1:
-		table.is_processing_match = false
+		is_processing_match = false
 		return
 	
 	print("[Match] %s vs %s — %s" % [
@@ -115,7 +133,7 @@ func _handle_own_card_match(card: Card3D, owner_idx: int) -> void:
 	print("[Match] Own card match! Removing %s from Player %d's grid" % [
 		card.card_data.get_short_name(), owner_idx + 1])
 	# Claim the matching window so no one else can match this card this round
-	table.match_claimed = true
+	match_claimed = true
 	
 	# Clear the grid slot (card already reparented to game_table in _attempt_match)
 	var grid = table.player_grids[owner_idx]
@@ -154,7 +172,7 @@ func _handle_opponent_card_match(actor_seat_id: int, card: Card3D, card_owner_id
 	print("[Match] Opponent card match! %s removed from Player %d's grid" % [
 		card.card_data.get_short_name(), card_owner_idx + 1])
 	# Claim the matching window so no one else can match this card this round
-	table.match_claimed = true
+	match_claimed = true
 	
 	# Remove card from opponent's grid (card already reparented to game_table in _attempt_match)
 	var opponent_grid = table.player_grids[card_owner_idx]
@@ -181,9 +199,9 @@ func _handle_opponent_card_match(actor_seat_id: int, card: Card3D, card_owner_id
 	card.queue_free()
 	
 	# The matching seat must now pick one of their own cards to give to the opponent
-	table.give_card_actor_seat_idx = actor_seat_id
-	table.give_card_target_player_idx = card_owner_idx
-	table.is_choosing_give_card = true
+	give_card_actor_seat_idx = actor_seat_id
+	give_card_target_player_idx = card_owner_idx
+	is_choosing_give_card = true
 	_start_give_card_selection(actor_seat_id, card_owner_idx)
 
 func _start_give_card_selection(actor_seat_id: int, target_idx: int) -> void:
@@ -210,10 +228,10 @@ func handle_give_card_selection(actor_seat_id: int, card: Card3D) -> void:
 		print("[Match] Choose one of YOUR OWN cards to give!")
 		return
 	
-	table.is_choosing_give_card = false
-	var target_idx = table.give_card_target_player_idx
-	table.give_card_actor_seat_idx = -1
-	table.give_card_target_player_idx = -1
+	is_choosing_give_card = false
+	var target_idx = give_card_target_player_idx
+	give_card_actor_seat_idx = -1
+	give_card_target_player_idx = -1
 	
 	# Remove highlights from all own cards (main grid + penalty)
 	var own_grid = table.player_grids[actor_seat_id]
@@ -258,8 +276,8 @@ func handle_give_card_selection(actor_seat_id: int, card: Card3D) -> void:
 	
 	# If the turn-start was deferred while waiting for this give-card selection,
 	# now properly start the pending turn.
-	if table.give_card_needs_turn_start:
-		table.give_card_needs_turn_start = false
+	if give_card_needs_turn_start:
+		give_card_needs_turn_start = false
 		await get_tree().create_timer(0.3).timeout
 		table.turn_manager.start_next_turn()
 	elif table.is_local_seat(actor_seat_id) and table.is_player_turn and table.turn_ui:

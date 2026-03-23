@@ -10,6 +10,10 @@ var draw_pile: Array[CardData] = []
 var discard_pile: Array[CardData] = []
 var is_test_mode: bool = false  # Toggle for ability testing
 
+# Monotonically increasing counter — never resets between rounds so that
+# old CardRef.instance_id values can never accidentally match a new card.
+var _next_card_id: int = 0
+
 func _ready() -> void:
 	print("DeckManager initialized")
 
@@ -21,18 +25,22 @@ func create_standard_deck() -> void:
 	for suit in [CardData.Suit.HEARTS, CardData.Suit.DIAMONDS, CardData.Suit.CLUBS, CardData.Suit.SPADES]:
 		for rank in range(CardData.Rank.ACE, CardData.Rank.KING + 1):
 			var card = CardData.new()
+			card.card_id = _next_card_id
+			_next_card_id += 1
 			card.suit = suit
 			card.rank = rank
-			
+
 			# Mark red kings
 			if rank == CardData.Rank.KING and (suit == CardData.Suit.HEARTS or suit == CardData.Suit.DIAMONDS):
 				card.is_red_king = true
-			
+
 			card_data_deck.append(card)
-	
+
 	# Add 2 jokers (black = 0, red = 1)
 	for i in range(2):
 		var joker = CardData.new()
+		joker.card_id = _next_card_id
+		_next_card_id += 1
 		joker.suit = CardData.Suit.JOKER
 		joker.rank = CardData.Rank.JOKER
 		joker.joker_index = i
@@ -51,6 +59,8 @@ func create_test_deck_7_8() -> void:
 		# 3 cards per rank
 		for i in range(3):
 			var card = CardData.new()
+			card.card_id = _next_card_id
+			_next_card_id += 1
 			card.rank = rank
 			# Cycle through suits
 			match i:
@@ -68,11 +78,15 @@ func create_test_deck_matching() -> void:
 	var suits = [CardData.Suit.HEARTS, CardData.Suit.DIAMONDS, CardData.Suit.CLUBS, CardData.Suit.SPADES]
 	for i in range(26):
 		var card = CardData.new()
+		card.card_id = _next_card_id
+		_next_card_id += 1
 		card.rank = CardData.Rank.SEVEN
 		card.suit = suits[i % 4]
 		card_data_deck.append(card)
 	for i in range(26):
 		var card = CardData.new()
+		card.card_id = _next_card_id
+		_next_card_id += 1
 		card.rank = CardData.Rank.EIGHT
 		card.suit = suits[i % 4]
 		card_data_deck.append(card)
@@ -128,7 +142,7 @@ func deal_card() -> CardData:
 	"""Draw and return the top card from the draw pile.
 	Reshuffle must be handled BEFORE calling this: check can_reshuffle() and call perform_reshuffle()."""
 	if draw_pile.is_empty():
-		print("Warning: Draw pile is empty! Call perform_reshuffle() first.")
+		push_warning("DeckManager: deal_card() called on empty draw pile — call perform_reshuffle() first")
 		return null
 	
 	var card = draw_pile.pop_front()
@@ -190,3 +204,17 @@ func get_draw_pile_count() -> int:
 
 func get_discard_pile_count() -> int:
 	return discard_pile.size()
+
+func find_card_data_by_id(card_id: int) -> CardData:
+	"""Look up a CardData by its stable card_id. Searches draw pile, discard pile,
+	and the master deck list. Returns null if not found (e.g. card was removed)."""
+	for card in draw_pile:
+		if card.card_id == card_id:
+			return card
+	for card in discard_pile:
+		if card.card_id == card_id:
+			return card
+	for card in card_data_deck:
+		if card.card_id == card_id:
+			return card
+	return null

@@ -40,7 +40,7 @@ func deal_single_card(player_index: int, position_index: int) -> void:
 	
 	var card_data = table.deck_manager.deal_card()
 	if not card_data:
-		print("Warning: Deck is empty!")
+		push_warning("DealingManager: deal_card() returned null — deck exhausted")
 		return
 	
 	# Create card at draw pile position

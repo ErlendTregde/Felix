@@ -79,6 +79,7 @@ func initialize_steam() -> void:
 	
 	State.steam_initialized = true
 	last_init_error = ""
+	print("[SteamManager] Initialized OK  steam_id=%d  username='%s'" % [steam_id, steam_username])
 	steam_availability_changed.emit(true, "")
 
 func register_handler(_handler) -> void:
@@ -103,13 +104,14 @@ func notify_handlers(_method: StringName, ...args: Array) -> void:
 func create_lobby(_lobby_name: String = "", _max_players: int = MAX_LOBBY_PLAYERS) -> void:
 	if _steam == null or State.lobby_data.id != 0:
 		return
-	
+
 	if _lobby_name == "":
 		_lobby_name = State.user_data.steam_username + "'s lobby:"
-	
+
 	var max_players := clampi(_max_players, 1, MAX_LOBBY_PLAYERS)
 	State.lobby_data.name = _lobby_name
 	State.lobby_data.lobby_size = max_players
+	print("[SteamManager] Creating lobby '%s'  max=%d" % [_lobby_name, max_players])
 	_steam.createLobby(FRIENDS_ONLY_LOBBY, max_players)
 
 func join_lobby(_lobby_id: int) -> void:
@@ -125,20 +127,28 @@ func leave_lobby(_lobby_id: int) -> void:
 	if _steam == null or State.lobby_data.id == 0:
 		return
 	
+	print("[SteamManager] Leaving lobby %d" % _lobby_id)
 	_steam.leaveLobby(_lobby_id)
-	
+
 	for member in State.lobby_data.members:
 		_steam.closeP2PSessionWithUser(member)
-	
+
 	p2p.reset_transport_state()
 	State.reset_lobby_state()
 	State.clear_pending_join_request()
-	print("left")
+	print("[SteamManager] Left lobby %d" % _lobby_id)
 	notify_handlers("on_lobby_left", _lobby_id)
 	lobby_left_signal.emit(_lobby_id)
 
 func leave_current_lobby() -> void:
 	leave_lobby(State.lobby_data.id)
+
+func open_invite_dialog() -> void:
+	if _steam == null or State.lobby_data.id == 0:
+		push_warning("[SteamManager] open_invite_dialog: no active lobby")
+		return
+	print("[SteamManager] Opening invite dialog for lobby %d" % State.lobby_data.id)
+	_steam.activateGameOverlayInviteDialog(State.lobby_data.id)
 
 func search_available_lobbies() -> void:
 	if _steam == null:
@@ -194,8 +204,10 @@ func load_scene_for_all(_scene: Resource = null) -> void:
 
 func _on_lobby_created(_connect: int, _lobby_id: int) -> void:
 	if _connect != 1:
+		print("[SteamManager] Lobby creation failed  connect=%d" % _connect)
 		return
-	
+
+	print("[SteamManager] Lobby created  lobby_id=%d  name='%s'" % [_lobby_id, State.lobby_data.name])
 	State.lobby_data.id = _lobby_id
 	State.lobby_data.owner_id = State.user_data.steam_id
 	State.lobby_data.started = false
@@ -207,6 +219,11 @@ func _on_lobby_created(_connect: int, _lobby_id: int) -> void:
 	lobby_created_signal.emit(_lobby_id, State.lobby_data.name)
 
 func _on_lobby_joined(_lobby_id: int, _permissions: int, _locked: bool, response: int) -> void:
+	print("[SteamManager] Lobby joined  lobby_id=%d  response=%d  owner=%d  started=%s" % [
+		_lobby_id, response,
+		_steam.getLobbyOwner(_lobby_id),
+		_steam.getLobbyData(_lobby_id, "started")
+	])
 	if response != _steam.CHAT_ROOM_ENTER_RESPONSE_SUCCESS:
 		State.current_state = State.GameState.LOBBY
 		State.reset_lobby_state()
@@ -276,10 +293,10 @@ func _on_lobby_send_msg(_result: int, _user: int, _message: String, _type: int) 
 	chat_message_signal.emit(sender, _message)
 
 func _on_lobby_join_requested(_lobby_id: int, _friend_id: int) -> void:
+	var steam_name: String = _steam.getFriendPersonaName(_friend_id)
+	print("[SteamManager] Invite received from '%s' (id=%d)  lobby_id=%d" % [steam_name, _friend_id, _lobby_id])
 	State.single_player = false
 	State.set_pending_join_request(_lobby_id, "steam_invite", _friend_id)
-	var steam_name = _steam.getFriendPersonaName(_friend_id)
-	print("joining..." + steam_name)
 	notify_handlers("on_join_request_pending", _lobby_id, _friend_id, "steam_invite")
 	join_request_pending_signal.emit(_lobby_id, _friend_id, "steam_invite")
 	join_lobby(_lobby_id)

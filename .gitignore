@@ -19,3 +19,12 @@ Thumbs.db
 
 # Editor settings (optional)
 *.tmp
+
+# Godot auto-generated UIDs
+*.uid
+
+# Steam — do not commit these
+steam_api64.dll
+steam_appid.txt
+libgodotsteam.*.dll
+~*

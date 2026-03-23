@@ -17,23 +17,32 @@ const LOCAL_FILL_HEIGHT: float = 8.8
 @onready var title_label: Label = $RoomUI/TopLeft/TitleLabel
 @onready var status_label: Label = $RoomUI/TopLeft/StatusLabel
 @onready var seats_container: VBoxContainer = $RoomUI/TopLeft/SeatsContainer
+@onready var invite_button: Button = $RoomUI/BottomBar/InviteButton
 @onready var ready_button: Button = $RoomUI/BottomBar/ReadyButton
 @onready var start_button: Button = $RoomUI/BottomBar/StartButton
 @onready var leave_button: Button = $RoomUI/BottomBar/LeaveButton
+@onready var lobby_code_label: Label = $RoomUI/TopLeft/LobbyCodeRow/LobbyCodeLabel
+@onready var copy_button: Button = $RoomUI/TopLeft/LobbyCodeRow/CopyButton
 @onready var round_overlay: CenterContainer = $RoomUI/RoundOverlay
 @onready var round_label: Label = $RoomUI/RoundOverlay/RoundPanel/RoundLabel
 @onready var return_button: Button = $RoomUI/RoundOverlay/RoundPanel/ReturnButton
 
 var seat_visuals: Array[Node3D] = []
+var _debug_overlay: CanvasLayer = null
+var _debug_label: RichTextLabel = null
+var _debug_visible: bool = false
 
 func _ready() -> void:
 	_connect_room_service()
+	invite_button.pressed.connect(_on_invite_pressed)
 	ready_button.pressed.connect(_on_ready_pressed)
 	start_button.pressed.connect(_on_start_pressed)
 	leave_button.pressed.connect(_on_leave_pressed)
 	return_button.pressed.connect(_on_return_pressed)
+	copy_button.pressed.connect(_on_copy_pressed)
 	SteamRoomService.ensure_room_flow_started()
 	_refresh_view()
+	_build_debug_overlay()
 
 func _connect_room_service() -> void:
 	if not SteamRoomService.room_state_changed.is_connected(_on_room_state_changed):
@@ -63,7 +72,7 @@ func _refresh_view() -> void:
 	_refresh_seat_visuals(room_state)
 	_apply_local_view(room_state)
 
-func _refresh_seat_labels(room_state) -> void:
+func _refresh_seat_labels(room_state: RoomState) -> void:
 	for child in seats_container.get_children():
 		child.queue_free()
 	for seat in room_state.seat_states:
@@ -76,20 +85,27 @@ func _refresh_seat_labels(room_state) -> void:
 		seat_label.add_theme_constant_override("outline_size", 3)
 		seats_container.add_child(seat_label)
 
-func _refresh_buttons(room_state) -> void:
-	var local_member = room_state.get_member(SteamPlatformService.get_local_steam_id())
+func _refresh_buttons(room_state: RoomState) -> void:
+	var local_member := room_state.get_member(SteamPlatformService.get_local_steam_id())
+	var is_host := SteamRoomService.is_local_host()
 	ready_button.visible = not room_state.round_active and local_member != null
 	if local_member != null and local_member.is_ready:
 		ready_button.text = "Unready"
 	else:
 		ready_button.text = "I'm Ready"
-	start_button.visible = SteamRoomService.is_local_host() and not room_state.round_active
+	invite_button.visible = is_host and room_state.lobby_id != 0 and not room_state.round_active
+	start_button.visible = is_host and not room_state.round_active
 	start_button.disabled = not room_state.can_start_round()
+	var show_code := is_host and room_state.lobby_id != 0
+	lobby_code_label.visible = show_code
+	copy_button.visible = show_code
+	if show_code:
+		lobby_code_label.text = "Lobby ID: %d" % room_state.lobby_id
 	round_overlay.visible = room_state.round_active
-	return_button.visible = room_state.round_active and SteamRoomService.is_local_host()
+	return_button.visible = room_state.round_active and is_host
 	round_label.text = "Round transition is active.\nFull synchronized Steam gameplay lands in Phase 3."
 
-func _refresh_seat_visuals(room_state) -> void:
+func _refresh_seat_visuals(room_state: RoomState) -> void:
 	for visual in seat_visuals:
 		if is_instance_valid(visual):
 			visual.queue_free()
@@ -163,7 +179,7 @@ func _refresh_seat_visuals(room_state) -> void:
 
 		seat_visuals.append(body_root)
 
-func _apply_local_view(room_state) -> void:
+func _apply_local_view(room_state: RoomState) -> void:
 	var seat_index := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
 	if seat_index < 0:
 		seat_index = 0
@@ -202,11 +218,79 @@ func _get_seat_direction(seat_index: int) -> Vector3:
 		return Vector3(0, 0, 1)
 	return seat_direction.normalized()
 
-func _get_seat_color(room_state, seat) -> Color:
+func _get_seat_color(room_state: RoomState, seat: SeatState) -> Color:
 	var profile = room_state.participants_by_id.get(seat.occupant_participant_id, null)
 	if profile != null:
 		return profile.avatar_color
 	return Color(0.8, 0.8, 0.8, 1.0)
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
+		_toggle_debug_overlay()
+
+func _process(_delta: float) -> void:
+	if _debug_visible:
+		_update_debug_overlay()
+
+func _build_debug_overlay() -> void:
+	_debug_overlay = CanvasLayer.new()
+	_debug_overlay.layer = 100
+	add_child(_debug_overlay)
+	var panel := Panel.new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	panel.custom_minimum_size = Vector2(480, 320)
+	_debug_overlay.add_child(panel)
+	_debug_label = RichTextLabel.new()
+	_debug_label.bbcode_enabled = true
+	_debug_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_debug_label.add_theme_font_size_override("normal_font_size", 13)
+	panel.add_child(_debug_label)
+	_debug_overlay.visible = false
+
+func _toggle_debug_overlay() -> void:
+	_debug_visible = not _debug_visible
+	_debug_overlay.visible = _debug_visible
+
+func _update_debug_overlay() -> void:
+	var rs := SteamRoomService.get_room_state()
+	var lines: PackedStringArray = []
+	lines.append("[b]== Steam Debug (F3 to hide) ==[/b]")
+	lines.append("Phase: [b]%s[/b]  |  Round active: %s" % [rs.phase_name, rs.round_active])
+	lines.append("Lobby ID: %d  |  Host SteamID: %d" % [rs.lobby_id, rs.host_steam_id])
+	lines.append("Local SteamID: %d  |  Name: %s" % [
+		SteamPlatformService.get_local_steam_id(),
+		SteamPlatformService.get_local_display_name()
+	])
+	lines.append("MP unique_id: %d  |  is_server: %s  |  has_peer: %s" % [
+		multiplayer.get_unique_id(),
+		multiplayer.is_server(),
+		multiplayer.has_multiplayer_peer()
+	])
+	lines.append("[b]--- Seats ---[/b]")
+	for seat: SeatState in rs.seat_states:
+		if seat.is_occupied():
+			lines.append("[%s] %s  steamID:%d  peer:%d  ready:%s  local:%s" % [
+				seat.seat_label, seat.display_name,
+				seat.occupant_steam_id,
+				rs.get_member(seat.occupant_steam_id).peer_id if rs.get_member(seat.occupant_steam_id) != null else 0,
+				seat.is_ready, seat.is_local
+			])
+		else:
+			lines.append("[%s] Empty" % seat.seat_label)
+	_debug_label.text = "\n".join(lines)
+
+func _on_invite_pressed() -> void:
+	invite_button.disabled = true
+	SteamPlatformService.open_invite_dialog()
+	await get_tree().create_timer(2.0).timeout
+	invite_button.disabled = false
+
+func _on_copy_pressed() -> void:
+	var rs := SteamRoomService.get_room_state()
+	DisplayServer.clipboard_set(str(rs.lobby_id))
+	copy_button.text = "Copied!"
+	await get_tree().create_timer(2.0).timeout
+	copy_button.text = "Copy"
 
 func _on_ready_pressed() -> void:
 	SteamRoomService.request_toggle_ready()

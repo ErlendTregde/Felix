@@ -107,17 +107,23 @@ func exit_state(state: GameState) -> void:
 
 func start_turn() -> void:
 	"""Start the current player's turn"""
-	if players.is_empty():
-		return
-	
-	var player_id = players[current_player_index].player_id if players.size() > current_player_index else 0
+	var player_id: int = current_player_index
+	if not players.is_empty() and current_player_index < players.size():
+		player_id = players[current_player_index].player_id
+	elif not seat_contexts.is_empty() and current_player_index < seat_contexts.size():
+		player_id = seat_contexts[current_player_index].seat_index
+
 	print("Turn started for player %d" % player_id)
 	Events.turn_started.emit(player_id)
 	Events.action_prompt_changed.emit("Draw a card from the deck")
 
 func next_turn() -> void:
 	"""Move to the next player's turn (clockwise)"""
-	var player_id = players[current_player_index].player_id if players.size() > current_player_index else 0
+	var player_id: int = current_player_index
+	if not players.is_empty() and current_player_index < players.size():
+		player_id = players[current_player_index].player_id
+	elif not seat_contexts.is_empty() and current_player_index < seat_contexts.size():
+		player_id = seat_contexts[current_player_index].seat_index
 	Events.turn_ended.emit(player_id)
 	
 	# If we are in the KNOCKED state, consume the final turn and check completion
@@ -202,34 +208,26 @@ func set_player_ready(player_id: int, is_ready: bool = true) -> void:
 	"""Mark a player as ready (for initial viewing phase)"""
 	if player_id >= 0 and player_id < seat_contexts.size():
 		seat_contexts[player_id].is_ready = is_ready
+	# TODO: remove players[] path once all scenes are fully migrated to seat_contexts
 	if player_id >= 0 and player_id < players.size():
 		players[player_id].is_ready = is_ready
-		print("Player %d ready state: %s" % [player_id + 1, is_ready])
-		Events.player_ready_changed.emit(player_id, is_ready)
+	print("Player %d ready state: %s" % [player_id + 1, is_ready])
+	Events.player_ready_changed.emit(player_id, is_ready)
 
 func are_all_players_ready() -> bool:
-	
 	"""Check if all players have marked themselves as ready"""
-	if not seat_contexts.is_empty():
-		for context in seat_contexts:
-			if not context.is_ready:
-				return false
-		return true
-	for player in players:
-		if not player.is_ready:
+	if seat_contexts.is_empty():
+		return false
+	for context in seat_contexts:
+		if not context.is_ready:
 			return false
 	return true
 
 func get_ready_count() -> int:
 	"""Get the number of players who are ready"""
-	var count = 0
-	if not seat_contexts.is_empty():
-		for context in seat_contexts:
-			if context.is_ready:
-				count += 1
-		return count
-	for player in players:
-		if player.is_ready:
+	var count := 0
+	for context in seat_contexts:
+		if context.is_ready:
 			count += 1
 	return count
 
@@ -237,8 +235,6 @@ func reset_all_ready_states() -> void:
 	"""Reset all players' ready states to false"""
 	for context in seat_contexts:
 		context.is_ready = false
-	for player in players:
-		player.is_ready = false
 
 func set_seat_contexts(contexts: Array[SeatContext], new_local_seat_index: int) -> void:
 	seat_contexts = contexts.duplicate()
