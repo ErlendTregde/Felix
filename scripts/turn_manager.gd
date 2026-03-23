@@ -15,6 +15,7 @@ func start_next_turn() -> void:
 	"""Start the next player's turn"""
 	var current_player_id = GameManager.current_player_index
 	var current_player = GameManager.get_current_player()
+	var current_seat_context: SeatContext = table.get_seat_context(current_player_id)
 	
 	if not current_player:
 		print("Error: No current player!")
@@ -38,8 +39,7 @@ func start_next_turn() -> void:
 	
 	print("\n=== Turn %d: %s ===" % [current_player_id + 1, current_player.player_name])
 	
-	# Check if this is player 1 (human) or a bot
-	table.is_player_turn = (current_player_id == 0)
+	table.is_player_turn = table.is_local_seat(current_player_id)
 	
 	# Update turn UI
 	table.turn_ui.show_turn(current_player_id, current_player.player_name, table.is_player_turn)
@@ -76,30 +76,29 @@ func start_next_turn() -> void:
 	# matched an opponent's card while it was the opponent's turn, and the turn then advanced
 	# before the human selected which card to give), restore that selection now and skip
 	# the normal turn-start flow until the human picks a card.
-	if table.is_choosing_give_card:
+	if table.is_choosing_give_card and table.is_local_seat(table.give_card_actor_seat_idx):
 		if table.draw_pile_visual:
 			table.draw_pile_visual.set_interactive(false)
 		if table.discard_pile_visual:
 			table.discard_pile_visual.set_interactive(false)
 		table.give_card_needs_turn_start = true
-		table.match_manager._start_give_card_selection(table.give_card_target_player_idx)
+		table.match_manager._start_give_card_selection(table.give_card_actor_seat_idx, table.give_card_target_player_idx)
 		return
 	
 	if table.is_player_turn:
-		# Human player's turn - wait for input
 		print("Your turn! Press D to draw a card")
 		
 		# Show knock button only in PLAYING state (not during final round after someone knocked)
 		if GameManager.current_state == GameManager.GameState.PLAYING:
 			table.turn_ui.update_action("Press D to draw a card, click draw pile, or KNOCK")
-			table.knock_manager.show_button_for(0)  # Player 0 = human
+			table.knock_manager.show_button_for(current_player_id)
 		else:
 			table.turn_ui.update_action("Press D to draw a card or click draw pile")
 		
 		# Enable draw pile interaction for human player
 		if table.draw_pile_visual:
 			table.draw_pile_visual.set_interactive(true)
-	else:
+	elif current_seat_context != null and current_seat_context.is_bot():
 		# Bot turn - auto-play
 		print("%s (Bot) is thinking..." % current_player.player_name)
 		# Show knock button for the bot in PLAYING state (bot_ai will simulate_press if it decides to knock)
@@ -110,6 +109,8 @@ func start_next_turn() -> void:
 			table.draw_pile_visual.set_interactive(false)
 		await get_tree().create_timer(1.0).timeout
 		table.bot_ai_manager.execute_bot_turn(current_player_id)
+	else:
+		print("Waiting for remote player %s" % current_player.player_name)
 
 func handle_card_selection(card: Card3D) -> void:
 	"""Handle player selecting a card during their turn"""
@@ -226,7 +227,7 @@ func draw_card_from_pile() -> Card3D:
 		await get_tree().create_timer(0.35).timeout
 	
 	# Tilt the card towards the player (steep for bots to hide front from human camera)
-	var is_bot_turn: bool = (current_player_id != 0)
+	var is_bot_turn: bool = not table.is_local_seat(current_player_id)
 	table.view_helper.tilt_card_towards_viewer(card, is_bot_turn)
 	await get_tree().create_timer(0.25).timeout
 	
@@ -342,6 +343,7 @@ func swap_cards(grid_card: Card3D, new_card: Card3D) -> void:
 			
 			# Insert drawn card back at the exact slot that was freed.
 			new_card.owner_player = table.players[GameManager.current_player_index]
+			new_card.owner_seat_id = GameManager.current_player_index
 			new_card.is_interactable = true
 			if not new_card.card_clicked.is_connected(table._on_card_clicked):
 				new_card.card_clicked.connect(table._on_card_clicked)
@@ -454,7 +456,7 @@ func end_current_turn() -> void:
 	table.knock_manager.hide_all_buttons()
 	
 	# Move to next turn (GameManager.next_turn handles KNOCKED → ROUND_END transition)
-	GameManager.next_turn()
+	table.round_controller.complete_turn()
 	
 	# If round ended, don't start a new turn (the state change callback handles it)
 	if GameManager.current_state == GameManager.GameState.ROUND_END:

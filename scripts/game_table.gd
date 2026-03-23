@@ -1,10 +1,16 @@
 extends Node3D
 ## Main game table controller - orchestrates components for the game board
 
-@onready var camera_controller = $CameraController
-@onready var players_container = $Players
-@onready var draw_pile_marker = $PositionMarkers/DrawPile
-@onready var discard_pile_marker = $PositionMarkers/DiscardPile
+@export var local_seat_override: int = -1
+@export var debug_view_seat_override: int = -1
+
+@onready var camera_controller = $Shell/CameraController
+@onready var players_container = $Shell/Players
+@onready var draw_pile_marker = $Shell/PositionMarkers/DrawPile
+@onready var discard_pile_marker = $Shell/PositionMarkers/DiscardPile
+@onready var room_fill_light: OmniLight3D = $Shell/Room/FillLight
+@onready var room_front_fill: OmniLight3D = $Shell/Room/FrontFill
+@onready var room_back_fill: OmniLight3D = $Shell/Room/BackFill
 
 var discard_label_3d: Label3D = null
 
@@ -12,6 +18,19 @@ var discard_label_3d: Label3D = null
 # (GLB model scaled ×8.42, positioned so surface = 6.76, floor at Y=0)
 const TABLE_SURFACE_Y: float = 6.76
 var table_surface_y: float = TABLE_SURFACE_Y
+const SEAT_CAMERA_RADIUS: float = 9.5
+const SEAT_CAMERA_HEIGHT_OFFSET: float = 3.2
+const SEAT_CAMERA_LOOK_HEIGHT_OFFSET: float = 0.35
+const LOCAL_FRONT_FILL_DISTANCE: float = 4.6
+const LOCAL_BACK_FILL_DISTANCE: float = 7.2
+const LOCAL_FILL_HEIGHT: float = 8.8
+const SEAT_LABELS: Array[String] = ["South", "North", "West", "East"]
+const PARTICIPANT_COLORS: Array[Color] = [
+	Color(0.2, 0.7, 0.2, 1.0),
+	Color(0.7, 0.2, 0.2, 1.0),
+	Color(0.2, 0.2, 0.7, 1.0),
+	Color(0.7, 0.7, 0.2, 1.0),
+]
 
 var deck_manager: DeckManager
 var card_scene = preload("res://scenes/cards/card_3d.tscn")
@@ -21,9 +40,13 @@ var viewing_ui_scene = preload("res://scenes/ui/viewing_ui.tscn")
 var turn_ui_scene = preload("res://scenes/ui/turn_ui.tscn")
 var swap_choice_ui_scene = preload("res://scenes/ui/swap_choice_ui.tscn")
 var round_end_ui_scene = preload("res://scenes/ui/round_end_ui.tscn")
+const ParticipantProfileScript = preload("res://scripts/participant_profile.gd")
 
 var player_grids: Array[PlayerGrid] = []
 var players: Array[Player] = []
+var participant_profiles: Array = []
+var seat_contexts: Array[SeatContext] = []
+var local_seat_index: int = 0
 var num_players: int = 2
 var is_dealing: bool = false
 
@@ -69,7 +92,7 @@ var look_and_swap_second_penalty_slot: int = -1 # penalty slot (-1 if main-grid 
 var initial_view_cards: Dictionary = {}  # player_idx -> [card1, card2]
 
 # Debug: Visual markers for player seating positions
-var seat_markers: Array[MeshInstance3D] = []
+var seat_markers: Array[Node3D] = []
 
 # ======================================
 # PHASE 6: FAST REACTION MATCHING STATE
@@ -77,6 +100,7 @@ var seat_markers: Array[MeshInstance3D] = []
 var is_processing_match: bool = false  # True while a match attempt is being resolved
 var is_choosing_give_card: bool = false  # True while picking which card to give to opponent
 var give_card_target_player_idx: int = -1  # Opponent who receives the give card
+var give_card_actor_seat_idx: int = -1  # Seat that must choose the give-card
 var give_card_needs_turn_start: bool = false  # True when start_next_turn returned early due to pending give-card
 var match_claimed: bool = false  # True after a successful match; blocks further matches until a new card reaches the discard pile from the draw pile
 
@@ -90,6 +114,7 @@ var bot_ai_manager: BotAIManager = null
 var match_manager: MatchManager = null
 var knock_manager: KnockManager = null
 var scoring_manager: ScoringManager = null
+var round_controller: FelixRoundController = null
 
 func _ready() -> void:
 	print("=== Felix Card Game - Game Table Ready ===")
@@ -130,6 +155,10 @@ func _ready() -> void:
 	scoring_manager = ScoringManager.new()
 	scoring_manager.init(self)
 	add_child(scoring_manager)
+
+	round_controller = FelixRoundController.new()
+	round_controller.init(self)
+	add_child(round_controller)
 
 	# Initialize deck manager
 	deck_manager = DeckManager.new()
@@ -178,6 +207,11 @@ func _ready() -> void:
 	print("Press F to shake camera")
 	print("Press A to auto-ready other players (debug)")
 	print("Press D to draw card during your turn")
+	print("Press F1-F4 in setup to move the local participant to another seat")
+	print("Press Shift+F1-F4 in setup to preview another seat without moving occupants")
+	print("Debug local seat override: %s" % get_seat_label(local_seat_index))
+	if debug_view_seat_override >= 0:
+		print("Debug camera preview: %s" % get_seat_label(debug_view_seat_override))
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
@@ -194,11 +228,31 @@ func _input(event: InputEvent) -> void:
 			change_player_count(3)
 		elif event.keycode == KEY_4:
 			change_player_count(4)
+		elif event.keycode == KEY_F1:
+			if event.shift_pressed:
+				_set_debug_view_seat_override(0)
+			else:
+				_set_debug_local_seat_override(0)
+		elif event.keycode == KEY_F2:
+			if event.shift_pressed:
+				_set_debug_view_seat_override(1)
+			else:
+				_set_debug_local_seat_override(1)
+		elif event.keycode == KEY_F3:
+			if event.shift_pressed:
+				_set_debug_view_seat_override(2)
+			else:
+				_set_debug_local_seat_override(2)
+		elif event.keycode == KEY_F4:
+			if event.shift_pressed:
+				_set_debug_view_seat_override(3)
+			else:
+				_set_debug_local_seat_override(3)
 		
 		# Flip all cards / Confirm ability viewing
 		elif event.keycode == KEY_SPACE:
 			if awaiting_ability_confirmation:
-				ability_manager.confirm_ability_viewing()
+				round_controller.request_ability_confirm(local_seat_index)
 			else:
 				flip_all_cards()
 		
@@ -234,7 +288,7 @@ func _input(event: InputEvent) -> void:
 			if (GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED) and is_player_turn and not drawn_card and not is_drawing:
 				# Hide knock buttons once player starts drawing
 				knock_manager.hide_all_buttons()
-				turn_manager.handle_draw_card()
+				round_controller.request_draw(local_seat_index)
 
 # ===========================================
 # TABLE MODEL SETUP (GLB import)
@@ -277,14 +331,19 @@ func setup_players(count: int) -> void:
 	clear_all_players()
 	
 	num_players = clampi(count, 1, 4)
+	local_seat_index = _resolve_local_seat_index(num_players)
+	debug_view_seat_override = _sanitize_debug_view_seat_override(num_players)
+	seat_contexts.clear()
+	_rebuild_participant_profiles(num_players)
+	var seat_assignments := _build_local_participant_seat_assignment(num_players, local_seat_index)
 	
 	# Player positions around the round table (surface Y set dynamically)
 	var card_y := table_surface_y + 0.01  # Cards sit slightly above table surface
 	var positions = [
-		Vector3(0, card_y, 3.5),    # Player 0 (South) - Human
-		Vector3(0, card_y, -3.5),   # Player 1 (North) - Bot
-		Vector3(-4, card_y, 0),     # Player 2 (West) - Bot
-		Vector3(4, card_y, 0)       # Player 3 (East) - Bot
+		Vector3(0, card_y, 3.5),
+		Vector3(0, card_y, -3.5),
+		Vector3(-4, card_y, 0),
+		Vector3(4, card_y, 0)
 	]
 	
 	var rotations = [
@@ -295,35 +354,66 @@ func setup_players(count: int) -> void:
 	]
 	
 	for i in range(num_players):
+		var participant_id := seat_assignments[i]
+		var participant_profile = get_participant_profile(participant_id)
+		var seat_control_type: SeatContext.SeatControlType = participant_profile.control_type if participant_profile != null else SeatContext.SeatControlType.BOT
+		var seat_label := get_seat_label(i)
+		var seat_context := SeatContext.new().configure(
+			i,
+			seat_label,
+			participant_id,
+			participant_profile.display_name if participant_profile != null else "Player %d" % (participant_id + 1),
+			seat_control_type,
+			participant_profile.is_local if participant_profile != null else i == local_seat_index
+		)
+		seat_contexts.append(seat_context)
+
 		# Create Player object
 		var player = Player.new()
 		player.player_id = i
-		player.player_name = "Player %d" % (i + 1)
+		player.participant_id = participant_id
+		player.seat_index = i
+		player.seat_label = seat_label
+		player.player_name = participant_profile.display_name if participant_profile != null else "Player %d" % (participant_id + 1)
+		player.player_color = participant_profile.avatar_color if participant_profile != null else _get_participant_color(participant_id)
+		player.set_control_type(seat_control_type)
 		players.append(player)
 		players_container.add_child(player)
 		
 		# Create PlayerGrid
 		var grid = player_grid_scene.instantiate()
 		grid.player_id = i
+		grid.owner_seat_id = i
 		grid.position = positions[i]
 		grid.rotation.y = rotations[i]
 		grid.base_rotation_y = rotations[i]  # Store rotation for cards
 		grid.set_meta("owner_player", player)
+		grid.set_meta("owner_seat_id", i)
+		grid.set_meta("occupant_participant_id", participant_id)
 		player_grids.append(grid)
 		players_container.add_child(grid)
 		
-		print("Setup %s at position %s" % [player.player_name, positions[i]])
+		print("Setup %s in %s seat at position %s" % [player.player_name, seat_label, positions[i]])
 	
 	# Update GameManager
 	GameManager.players = players
 	GameManager.player_count = num_players
+	GameManager.set_seat_contexts(seat_contexts, local_seat_index)
+	round_controller.configure_seats(players, seat_contexts, local_seat_index)
 	
 	# Create debug seat markers
 	view_helper.create_seat_markers()
 
 	# Create 3D knock buttons (one per player grid)
 	knock_manager.create_buttons()
+
+	_apply_local_seat_camera_view()
+	_apply_local_seat_lighting()
 	
+	if local_seat_index >= 0 and local_seat_index < players.size():
+		print("Local participant %s is seated at %s" % [players[local_seat_index].player_name, get_seat_label(local_seat_index)])
+	if debug_view_seat_override >= 0:
+		print("Debug camera preview is following %s seat (occupants unchanged)" % get_seat_label(debug_view_seat_override))
 	print("\n%d player(s) ready!" % num_players)
 
 func change_player_count(count: int) -> void:
@@ -349,6 +439,7 @@ func clear_all_players() -> void:
 	
 	player_grids.clear()
 	players.clear()
+	seat_contexts.clear()
 
 func flip_all_cards() -> void:
 	"""Flip all cards on the table"""
@@ -359,14 +450,8 @@ func flip_all_cards() -> void:
 
 func _on_card_clicked(card: Card3D) -> void:
 	"""Handle card click — dispatch to appropriate component"""
-	# Phase 6: Handle give-card selection after a successful opponent match
-	if is_choosing_give_card:
-		match_manager.handle_give_card_selection(card)
-		return
-	
-	# During gameplay (PLAYING or KNOCKED), handle card selection
 	if GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED:
-		turn_manager.handle_card_selection(card)
+		round_controller.request_card_click(local_seat_index, card)
 		return
 	
 	# Debug/testing: flip card
@@ -379,48 +464,159 @@ func _on_card_clicked(card: Card3D) -> void:
 
 func _on_card_right_clicked(card: Card3D) -> void:
 	"""Handle card right-click — dispatch to match manager"""
-	match_manager.on_card_right_clicked(card)
+	round_controller.request_match(local_seat_index, card)
 
 func _on_discard_pile_clicked(_pile: CardPile) -> void:
 	"""Handle discard pile click - play card to discard and use ability"""
-	if not is_player_turn:
-		print("Not your turn!")
-		return
-	
-	if not drawn_card:
-		print("Draw a card first! Press D")
-		return
-	
-	# Disable discard pile interaction
-	if discard_pile_visual:
-		discard_pile_visual.set_interactive(false)
-	
-	# Play card to discard pile
-	await turn_manager.play_card_to_discard(drawn_card)
+	await round_controller.request_discard_drawn(local_seat_index)
 
 func _on_draw_pile_clicked(_pile: CardPile) -> void:
 	"""Handle draw pile click - draw a card"""
-	if not is_player_turn:
-		print("Not your turn!")
-		return
-	
-	if drawn_card or is_drawing:
-		print("Already drew a card!")
-		return
-	
-	if GameManager.current_state != GameManager.GameState.PLAYING and GameManager.current_state != GameManager.GameState.KNOCKED:
-		print("Cannot draw now!")
-		return
-	
 	# Hide knock buttons once player starts drawing
 	knock_manager.hide_all_buttons()
-	
-	# Disable draw pile interaction
-	if draw_pile_visual:
-		draw_pile_visual.set_interactive(false)
-	
-	# Start drawing
-	turn_manager.handle_draw_card()
+	await round_controller.request_draw(local_seat_index)
+
+func _resolve_local_seat_index(player_count: int) -> int:
+	if local_seat_override < 0:
+		return 0
+	return clampi(local_seat_override, 0, max(player_count - 1, 0))
+
+func _sanitize_debug_view_seat_override(player_count: int) -> int:
+	if debug_view_seat_override < 0:
+		return -1
+	if debug_view_seat_override >= player_count:
+		return -1
+	return debug_view_seat_override
+
+func _rebuild_participant_profiles(player_count: int) -> void:
+	participant_profiles.clear()
+	for participant_id in range(player_count):
+		var control_type := SeatContext.SeatControlType.LOCAL_HUMAN if participant_id == 0 else SeatContext.SeatControlType.BOT
+		var participant_profile = ParticipantProfileScript.new().configure(
+			participant_id,
+			"Player %d" % (participant_id + 1),
+			_get_participant_color(participant_id),
+			control_type,
+			participant_id == 0
+		)
+		participant_profiles.append(participant_profile)
+
+func _build_local_participant_seat_assignment(player_count: int, desired_local_seat: int) -> Array[int]:
+	var seat_assignments: Array[int] = []
+	seat_assignments.resize(player_count)
+	if player_count <= 0:
+		return seat_assignments
+
+	var local_participant_id := 0
+	var clamped_local_seat := clampi(desired_local_seat, 0, max(player_count - 1, 0))
+	seat_assignments[clamped_local_seat] = local_participant_id
+
+	var available_seats: Array[int] = []
+	for seat_id in range(player_count):
+		if seat_id != clamped_local_seat:
+			available_seats.append(seat_id)
+
+	for participant_id in range(1, player_count):
+		seat_assignments[available_seats[participant_id - 1]] = participant_id
+
+	return seat_assignments
+
+func get_participant_profile(participant_id: int):
+	return participant_profiles[participant_id] if participant_id >= 0 and participant_id < participant_profiles.size() else null
+
+func get_participant_profile_for_seat(seat_id: int):
+	var context := get_seat_context(seat_id)
+	if context == null:
+		return null
+	return get_participant_profile(context.occupant_participant_id)
+
+func get_seat_label(seat_id: int) -> String:
+	if seat_id >= 0 and seat_id < SEAT_LABELS.size():
+		return SEAT_LABELS[seat_id]
+	return "Seat %d" % (seat_id + 1)
+
+func _get_participant_color(participant_id: int) -> Color:
+	if participant_id >= 0 and participant_id < PARTICIPANT_COLORS.size():
+		return PARTICIPANT_COLORS[participant_id]
+	return Color(0.8, 0.8, 0.8, 1.0)
+
+func get_seat_context(seat_id: int) -> SeatContext:
+	return seat_contexts[seat_id] if seat_id >= 0 and seat_id < seat_contexts.size() else null
+
+func is_local_seat(seat_id: int) -> bool:
+	return seat_id == local_seat_index
+
+func is_bot_seat(seat_id: int) -> bool:
+	var context := get_seat_context(seat_id)
+	return context != null and context.is_bot()
+
+func can_local_seat_act(seat_id: int) -> bool:
+	return is_local_seat(seat_id) and seat_id == GameManager.current_player_index
+
+func _set_debug_local_seat_override(seat_id: int) -> void:
+	if is_dealing or GameManager.current_state != GameManager.GameState.SETUP:
+		print("Debug local seat override can only be changed before dealing.")
+		return
+	local_seat_override = seat_id
+	print("Debug local seat override set to %s seat" % get_seat_label(seat_id))
+	setup_players(num_players)
+
+func _set_debug_view_seat_override(seat_id: int) -> void:
+	if is_dealing or GameManager.current_state != GameManager.GameState.SETUP:
+		print("Debug camera preview can only be changed before dealing.")
+		return
+
+	var clamped_seat_id := clampi(seat_id, 0, max(num_players - 1, 0))
+	if debug_view_seat_override == clamped_seat_id:
+		debug_view_seat_override = -1
+		print("Debug camera preview cleared. Following local seat %s." % get_seat_label(local_seat_index))
+	else:
+		debug_view_seat_override = clamped_seat_id
+		print("Debug camera preview set to %s seat. Occupants unchanged." % get_seat_label(clamped_seat_id))
+
+	_apply_local_seat_camera_view()
+	_apply_local_seat_lighting()
+
+func _apply_local_seat_camera_view() -> void:
+	var active_view_seat := get_active_view_seat_index()
+	if not camera_controller or active_view_seat < 0 or active_view_seat >= player_grids.size():
+		return
+	var seat_direction := _get_seat_direction(active_view_seat)
+	var camera_pos := seat_direction * SEAT_CAMERA_RADIUS
+	camera_pos.y = table_surface_y + SEAT_CAMERA_HEIGHT_OFFSET
+	var look_target := Vector3(0, table_surface_y + SEAT_CAMERA_LOOK_HEIGHT_OFFSET, 0)
+	camera_controller.set_view(camera_pos, look_target)
+
+func _apply_local_seat_lighting() -> void:
+	var seat_direction := _get_seat_direction(get_active_view_seat_index())
+	if room_fill_light:
+		room_fill_light.global_position = Vector3(0, LOCAL_FILL_HEIGHT, 0)
+	if room_front_fill:
+		room_front_fill.global_position = Vector3(
+			seat_direction.x * LOCAL_FRONT_FILL_DISTANCE,
+			LOCAL_FILL_HEIGHT,
+			seat_direction.z * LOCAL_FRONT_FILL_DISTANCE
+		)
+	if room_back_fill:
+		room_back_fill.global_position = Vector3(
+			seat_direction.x * LOCAL_BACK_FILL_DISTANCE,
+			LOCAL_FILL_HEIGHT,
+			seat_direction.z * LOCAL_BACK_FILL_DISTANCE
+		)
+
+func get_active_view_seat_index() -> int:
+	if debug_view_seat_override >= 0 and debug_view_seat_override < player_grids.size():
+		return debug_view_seat_override
+	return local_seat_index
+
+func _get_seat_direction(seat_id: int) -> Vector3:
+	if seat_id < 0 or seat_id >= player_grids.size():
+		return Vector3(0, 0, 1)
+	var grid_pos := player_grids[seat_id].global_position
+	var seat_direction := Vector3(grid_pos.x, 0.0, grid_pos.z)
+	if seat_direction.length() < 0.001:
+		return Vector3(0, 0, 1)
+	return seat_direction.normalized()
 
 func _find_card_owner_idx(card: Card3D) -> int:
 	"""Return the player index who owns this card, or -1 if not found"""
@@ -431,6 +627,8 @@ func _find_card_owner_idx(card: Card3D) -> int:
 		for pc in player_grids[i].penalty_cards:
 			if pc == card:
 				return i
+	if card and card.owner_seat_id >= 0:
+		return card.owner_seat_id
 	return -1
 
 # ======================================
@@ -468,9 +666,7 @@ func _on_play_again_pressed() -> void:
 	print("\n=== Starting New Round ===")
 	
 	# Reset game state
-	GameManager.knocker_id = -1
-	GameManager.current_player_index = 0
-	GameManager.change_state(GameManager.GameState.SETUP)
+	round_controller.prepare_new_round_metadata()
 	
 	# Clear cards from grids (main + penalty)
 	for grid in player_grids:
@@ -488,9 +684,12 @@ func _on_play_again_pressed() -> void:
 	
 	# Reset player states (keep total_score)
 	for player in players:
+		player.cards.clear()
 		player.has_knocked = false
 		player.is_ready = false
 		player.current_score = 0
+	if round_controller:
+		round_controller.sync_scores_from_players(players)
 	
 	# Reset deck
 	deck_manager.reset_deck()
@@ -522,7 +721,9 @@ func _on_play_again_pressed() -> void:
 	is_processing_match = false
 	is_choosing_give_card = false
 	match_claimed = false
+	give_card_actor_seat_idx = -1
 	give_card_needs_turn_start = false
+	round_controller.sync_runtime_state()
 	
 	# Start dealing
 	dealing_manager.deal_cards_to_all_players()

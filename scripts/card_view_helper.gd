@@ -5,6 +5,13 @@ class_name CardViewHelper
 
 var table  # Reference to game_table
 
+const FALLBACK_AVATAR_COLORS: Array[Color] = [
+	Color(0.2, 0.7, 0.2, 1.0),
+	Color(0.7, 0.2, 0.2, 1.0),
+	Color(0.2, 0.2, 0.7, 1.0),
+	Color(0.7, 0.7, 0.2, 1.0),
+]
+
 func init(game_table) -> void:
 	table = game_table
 
@@ -123,8 +130,8 @@ func get_neighbors(player_index: int) -> Array[int]:
 	return neighbors
 
 func create_seat_markers() -> void:
-	"""Create bot character visuals at each bot player's seat (on the chairs).
-	Human player (index 0) gets a small marker; bots get a full capsule body + sphere head.
+	"""Create seat visuals at each occupied chair.
+	The local seat gets a small marker; bot seats get a full capsule body + sphere head.
 	"""
 	# Clear old markers
 	for marker in table.seat_markers:
@@ -146,26 +153,23 @@ func create_seat_markers() -> void:
 		var chair_sit_pos = grid_pos + dir_away * 3.0
 		chair_sit_pos.y = seat_pos.y
 		
-		# Bot color per player slot
-		var bot_color: Color
-		if i == 0:
-			bot_color = Color(0.2, 0.7, 0.2)   # Human: green (small marker only)
-		elif i == 1:
-			bot_color = Color(0.7, 0.2, 0.2)   # North bot: red
-		elif i == 2:
-			bot_color = Color(0.2, 0.2, 0.7)   # West bot: blue
-		else:
-			bot_color = Color(0.7, 0.7, 0.2)   # East bot: yellow
+		var seat_context: SeatContext = table.get_seat_context(i)
+		var seat_color := get_avatar_color_for_seat(i)
+		var occupant_name: String = seat_context.display_name if seat_context != null else "Player %d" % (i + 1)
+		var seat_label: String = table.get_seat_label(i) if table else "Seat %d" % (i + 1)
 		
-		if i == 0:
-			# Human player — just a small marker dot
+		if seat_context != null and seat_context.is_local_human():
+			# Local player - just a small marker dot
 			var dot = MeshInstance3D.new()
 			var sphere = SphereMesh.new()
 			sphere.radius = 0.06
 			sphere.height = 0.12
 			dot.mesh = sphere
 			var mat = StandardMaterial3D.new()
-			mat.albedo_color = bot_color
+			mat.albedo_color = seat_color.lightened(0.1)
+			mat.emission_enabled = true
+			mat.emission = seat_color.lightened(0.15)
+			mat.emission_energy_multiplier = 1.3
 			dot.material_override = mat
 			table.add_child(dot)
 			dot.global_position = Vector3(seat_pos.x, seat_pos.y + 0.3, seat_pos.z)
@@ -190,7 +194,7 @@ func create_seat_markers() -> void:
 			capsule.height = body_height
 			body.mesh = capsule
 			var body_mat = StandardMaterial3D.new()
-			body_mat.albedo_color = bot_color
+			body_mat.albedo_color = seat_color
 			body_mat.roughness = 0.8
 			body.material_override = body_mat
 			bot_root.add_child(body)
@@ -203,11 +207,22 @@ func create_seat_markers() -> void:
 			head_mesh.height = head_radius * 2.0
 			head.mesh = head_mesh
 			var head_mat = StandardMaterial3D.new()
-			head_mat.albedo_color = bot_color.lightened(0.2)
+			head_mat.albedo_color = seat_color.lightened(0.2)
 			head_mat.roughness = 0.7
 			head.material_override = head_mat
 			bot_root.add_child(head)
 			head.position = Vector3(0, body_height + head_radius * 0.8, 0)
 			
 			table.seat_markers.append(bot_root)
-			print("Created bot visual for Player %d at %s (color: %s)" % [i + 1, bot_root.global_position, bot_color])
+			print("Created bot visual for %s in %s seat at %s (color: %s)" % [occupant_name, seat_label, bot_root.global_position, seat_color])
+
+func get_avatar_color_for_seat(seat_id: int) -> Color:
+	if table:
+		var profile = table.get_participant_profile_for_seat(seat_id)
+		if profile != null:
+			return profile.avatar_color
+		if seat_id >= 0 and seat_id < table.players.size():
+			return table.players[seat_id].player_color
+	if seat_id >= 0 and seat_id < FALLBACK_AVATAR_COLORS.size():
+		return FALLBACK_AVATAR_COLORS[seat_id]
+	return Color(0.8, 0.8, 0.8, 1.0)

@@ -1,0 +1,100 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/steam_room.gd" id="1_room"]
+[ext_resource type="PackedScene" path="res://scenes/main/table_shell.tscn" id="2_shell"]
+
+[node name="SteamRoom" type="Node3D"]
+script = ExtResource("1_room")
+
+[node name="Shell" parent="." instance=ExtResource("2_shell")]
+
+[node name="RoomUI" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="TopLeft" type="VBoxContainer" parent="RoomUI"]
+anchors_preset = 1
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 424.0
+offset_bottom = 324.0
+theme_override_constants/separation = 10
+
+[node name="TitleLabel" type="Label" parent="RoomUI/TopLeft"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.92, 0.7, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 28
+text = "Steam Room"
+
+[node name="StatusLabel" type="Label" parent="RoomUI/TopLeft"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+autowrap_mode = 3
+text = ""
+
+[node name="SeatsContainer" type="VBoxContainer" parent="RoomUI/TopLeft"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="BottomBar" type="HBoxContainer" parent="RoomUI"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -84.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 12
+
+[node name="ReadyButton" type="Button" parent="RoomUI/BottomBar"]
+layout_mode = 2
+custom_minimum_size = Vector2(180, 46)
+theme_override_font_sizes/font_size = 18
+text = "I'm Ready"
+
+[node name="StartButton" type="Button" parent="RoomUI/BottomBar"]
+layout_mode = 2
+custom_minimum_size = Vector2(180, 46)
+theme_override_font_sizes/font_size = 18
+text = "Start Round"
+
+[node name="LeaveButton" type="Button" parent="RoomUI/BottomBar"]
+layout_mode = 2
+custom_minimum_size = Vector2(180, 46)
+theme_override_font_sizes/font_size = 18
+text = "Leave Room"
+
+[node name="RoundOverlay" type="CenterContainer" parent="RoomUI"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RoundPanel" type="VBoxContainer" parent="RoomUI/RoundOverlay"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="RoundLabel" type="Label" parent="RoomUI/RoundOverlay/RoundPanel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.95, 0.75, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 24
+horizontal_alignment = 1
+text = "Round transition active"
+
+[node name="ReturnButton" type="Button" parent="RoomUI/RoundOverlay/RoundPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(220, 46)
+theme_override_font_sizes/font_size = 18
+text = "Return To Room"

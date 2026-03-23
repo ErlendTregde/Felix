@@ -1,0 +1,23 @@
+Godot Engine v4.6.stable.official.89cea1439 - https://godotengine.org
+
+SCRIPT ERROR: Compile Error: Identifier not found: RoomState
+   at: GDScript::reload (res://scripts/room_state.gd:99)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "state" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://scripts/room_member_state.gd:44)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "state" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://scripts/seat_state.gd:42)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://autoloads/steam_room_service.gd:0)
+ERROR: Failed to load script "res://autoloads/steam_room_service.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript.cpp:2907)
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2570)
+Felix Card Game - Event Bus initialized
+Felix Card Game - GameManager initialized
+CardMeshLibrary: Cached 54 card meshes.
+Steam singleton not available. Install or enable the Steam extension first.
+SCRIPT ERROR: Invalid call. Nonexistent function 'new' in base 'GDScript'.
+   at: _reset_room_state (res://autoloads/steam_room_service.gd:128)
+   GDScript backtrace (most recent call first):
+       [0] _reset_room_state (res://autoloads/steam_room_service.gd:128)
+       [1] _ready (res://autoloads/steam_room_service.gd:19)

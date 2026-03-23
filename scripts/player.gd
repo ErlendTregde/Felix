@@ -4,8 +4,12 @@ class_name Player
 ## Tracks player state, cards, and score
 
 @export var player_id: int = 0
+@export var participant_id: int = 0
+@export var seat_index: int = 0
+@export var seat_label: String = ""
 @export var player_name: String = "Player"
 @export var player_color: Color = Color.WHITE
+var control_type: SeatContext.SeatControlType = SeatContext.SeatControlType.BOT
 
 var cards: Array[Node] = []  # Array of Card3D nodes
 var current_score: int = 0
@@ -14,13 +18,20 @@ var is_ready: bool = false
 var has_knocked: bool = false
 
 func _ready() -> void:
-	player_name = "Player %d" % (player_id + 1)
-	print("%s initialized" % player_name)
+	if player_name.is_empty():
+		player_name = "Player %d" % (participant_id + 1)
+	var final_seat_label := seat_label if not seat_label.is_empty() else "Seat %d" % (seat_index + 1)
+	print("%s initialized in %s" % [player_name, final_seat_label])
+
+func set_control_type(new_control_type: SeatContext.SeatControlType) -> void:
+	control_type = new_control_type
 
 func add_card(card: Node) -> void:
 	"""Add a card to this player's hand"""
 	cards.append(card)
 	card.owner_player = self
+	if card is Card3D:
+		card.owner_seat_id = seat_index
 
 func remove_card(card: Node) -> void:
 	"""Remove a card from this player's hand"""

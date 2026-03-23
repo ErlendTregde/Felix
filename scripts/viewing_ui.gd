@@ -15,10 +15,11 @@ func _ready() -> void:
 	ready_button.pressed.connect(_on_ready_pressed)
 	hide()
 
-func show_for_player(player_id: int, _player_count: int) -> void:
+func show_for_player(player_id: int, _player_count: int, player_name: String = "", seat_label: String = "") -> void:
 	"""Show the viewing UI for a specific player."""
 	current_player_id = player_id
-	player_label.text = "Player %d" % (player_id + 1)
+	var final_player_name := player_name if not player_name.is_empty() else "Player %d" % (player_id + 1)
+	player_label.text = "%s (%s)" % [final_player_name, seat_label] if not seat_label.is_empty() else final_player_name
 	status_label.text = "Memorize your bottom 2 cards"
 	ready_button.disabled = false
 	ready_button.text = "I'm Ready"

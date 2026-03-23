@@ -4,6 +4,7 @@ class_name PlayerGrid
 ## Handles card placement, retrieval, and visual layout
 
 @export var player_id: int = 0
+@export var owner_seat_id: int = -1
 @export var grid_spacing: float = 1.0
 
 var cards: Array[Card3D] = [null, null, null, null]  # 4 card slots
@@ -126,8 +127,12 @@ func add_card(card: Card3D, position_index: int, animate: bool = true) -> void:
 	cards[position_index] = card
 	add_child(card)
 	
-	if card.owner_player == null and has_meta("owner_player"):
+	if has_meta("owner_player"):
 		card.owner_player = get_meta("owner_player")
+	if owner_seat_id >= 0:
+		card.owner_seat_id = owner_seat_id
+	elif has_meta("owner_seat_id"):
+		card.owner_seat_id = int(get_meta("owner_seat_id"))
 	
 	# Position the card (rotation inherited from grid)
 	var target_pos = card_positions[position_index]
@@ -229,9 +234,12 @@ func add_penalty_card(card: Card3D, animate: bool = true) -> void:
 	penalty_cards.append(card)
 	add_child(card)
 	
-	# Ensure ownership is set (mirrors the pattern in add_card)
-	if card.owner_player == null and has_meta("owner_player"):
+	if has_meta("owner_player"):
 		card.owner_player = get_meta("owner_player")
+	if owner_seat_id >= 0:
+		card.owner_seat_id = owner_seat_id
+	elif has_meta("owner_seat_id"):
+		card.owner_seat_id = int(get_meta("owner_seat_id"))
 	
 	var target_local = penalty_positions[slot] + Vector3(0, stack_height, 0)
 	if animate:
@@ -311,9 +319,12 @@ func insert_penalty_card_at(card: Card3D, slot: int, animate: bool = true) -> vo
 	penalty_cards.insert(slot, card)
 	add_child(card)
 	
-	# Ensure ownership is set (mirrors the pattern in add_card)
-	if card.owner_player == null and has_meta("owner_player"):
+	if has_meta("owner_player"):
 		card.owner_player = get_meta("owner_player")
+	if owner_seat_id >= 0:
+		card.owner_seat_id = owner_seat_id
+	elif has_meta("owner_seat_id"):
+		card.owner_seat_id = int(get_meta("owner_seat_id"))
 
 	var target_local := penalty_positions[slot]
 	if animate:

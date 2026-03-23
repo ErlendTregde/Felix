@@ -9,8 +9,7 @@ func init(game_table) -> void:
 
 func handle_ability_target_selection(card: Card3D) -> void:
 	"""Handle selecting a target card for an ability"""
-	var grid = table.player_grids[GameManager.current_player_index]
-	var current_player = GameManager.get_current_player()
+	var current_player_idx = GameManager.current_player_index
 	
 	# Special handling for BLIND_SWAP (two-step selection)
 	if table.current_ability == CardData.AbilityType.BLIND_SWAP:
@@ -25,12 +24,11 @@ func handle_ability_target_selection(card: Card3D) -> void:
 	# Check if the selected card is valid for the current ability
 	if table.current_ability == CardData.AbilityType.LOOK_OWN:
 		# For look_own, card must belong to current player
-		if card.owner_player != current_player:
+		if card.owner_seat_id != current_player_idx:
 			print("Select one of YOUR cards!")
 			return
 	elif table.current_ability == CardData.AbilityType.LOOK_OPPONENT:
 		# For look_opponent, card must belong to a NEIGHBOR (not own, not across)
-		var current_player_idx = GameManager.current_player_index
 		var neighbors = table.view_helper.get_neighbors(current_player_idx)
 		# Search both main slots AND penalty cards
 		var card_owner_idx = table._find_card_owner_idx(card)
@@ -393,8 +391,8 @@ func display_cards_for_choice() -> void:
 	await get_tree().create_timer(0.25).timeout
 	
 	# Determine which card is yours and which is neighbor's
-	var current_player = GameManager.get_current_player()
-	var card1_is_own = (card1.owner_player == current_player)
+	var current_player_idx = GameManager.current_player_index
+	var card1_is_own = (card1.owner_seat_id == current_player_idx)
 	
 	# Spawn 3D labels above each card
 	_queen_remove_labels()  # Safety cleanup
@@ -504,10 +502,13 @@ func confirm_blind_swap() -> void:
 	else:
 		card2_grid.penalty_cards[card2_penalty_slot] = card1
 	
-	# --- Update owner_player references ---
+	# --- Update owner references ---
 	var temp_owner = card1.owner_player
 	card1.owner_player = card2.owner_player
 	card2.owner_player = temp_owner
+	var temp_owner_seat = card1.owner_seat_id
+	card1.owner_seat_id = card2.owner_seat_id
+	card2.owner_seat_id = temp_owner_seat
 	
 	# --- Animate both cards to new positions (while still elevated) ---
 	card1.move_to(card1_target, 0.4, false)
@@ -854,10 +855,13 @@ func _on_swap_chosen() -> void:
 	_queen_set_slot(card1_grid, card1_position, card1_penalty, card2)
 	_queen_set_slot(card2_grid, card2_position, card2_penalty, card1)
 	
-	# Update owner_player references
+	# Update owner references
 	var temp_owner2 = card1.owner_player
 	card1.owner_player = card2.owner_player
 	card2.owner_player = temp_owner2
+	var temp_owner_seat2 = card1.owner_seat_id
+	card1.owner_seat_id = card2.owner_seat_id
+	card2.owner_seat_id = temp_owner_seat2
 	
 	# Animate both cards to their new positions
 	card1.move_to(card1_target, 0.4, false)

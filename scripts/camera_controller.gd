@@ -30,6 +30,15 @@ func _ready() -> void:
 		_base_transform = camera.transform
 		original_position = camera.position
 
+func set_view(global_position: Vector3, look_target: Vector3) -> void:
+	"""Snap the camera to a world-space view and make that the new look-around base."""
+	if not camera:
+		return
+	camera.global_position = global_position
+	camera.look_at(look_target, Vector3.UP)
+	_reset_look_offsets()
+	_store_current_transform_as_base()
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var viewport_size := get_viewport().get_visible_rect().size
@@ -88,3 +97,13 @@ func smooth_move_to(target_pos: Vector3, duration: float = 1.0) -> void:
 		new_base.origin = target_pos
 		_base_transform = new_base
 		original_position = target_pos
+
+func _reset_look_offsets() -> void:
+	_target_yaw = 0.0
+	_target_pitch = 0.0
+	_current_yaw = 0.0
+	_current_pitch = 0.0
+
+func _store_current_transform_as_base() -> void:
+	_base_transform = camera.transform
+	original_position = camera.position

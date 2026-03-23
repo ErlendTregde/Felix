@@ -62,6 +62,8 @@ func apply_round_scores(scores: Dictionary) -> void:
 			player.current_score = scores[player_id]
 			player.total_score += scores[player_id]
 			Events.score_updated.emit(player_id, player.total_score)
+	if table.round_controller:
+		table.round_controller.sync_scores_from_players(table.players)
 
 func get_score_summary() -> Array[Dictionary]:
 	"""Return an array of { id, name, round_score, total_score } sorted by round score."""

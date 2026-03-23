@@ -1,0 +1,38 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/main/camera_controller.tscn" id="1_camera"]
+[ext_resource type="PackedScene" path="res://scenes/environment/room_blockout.tscn" id="2_room"]
+[ext_resource type="PackedScene" path="res://assets/models/tableandchairs/round_table_and_chairs.glb" id="3_tablemodel"]
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 1
+background_color = Color(0.05, 0.04, 0.03, 1)
+ambient_light_source = 1
+ambient_light_color = Color(0.6, 0.5, 0.35, 1)
+ambient_light_energy = 0.55
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 0.3
+glow_bloom = 0.1
+
+[node name="TableShell" type="Node3D"]
+
+[node name="CameraController" parent="." instance=ExtResource("1_camera")]
+
+[node name="TableModel" parent="." instance=ExtResource("3_tablemodel")]
+transform = Transform3D(5.95388, 0, -5.95388, 0, 8.42002, 0, 5.95388, 0, 5.95388, 0, 0.0873, 0)
+
+[node name="Room" parent="." instance=ExtResource("2_room")]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="Players" type="Node3D" parent="."]
+
+[node name="PositionMarkers" type="Node3D" parent="."]
+
+[node name="DrawPile" type="Node3D" parent="PositionMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 6.77, 0)
+
+[node name="DiscardPile" type="Node3D" parent="PositionMarkers"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 6.77, 0)

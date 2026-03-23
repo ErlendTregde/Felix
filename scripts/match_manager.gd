@@ -16,7 +16,7 @@ func _unlock_matching() -> void:
 	table.is_processing_match = false
 	print("[Match] Match processing complete")
 
-func on_card_right_clicked(card: Card3D) -> void:
+func on_card_right_clicked(actor_seat_id: int, card: Card3D) -> void:
 	"""Right-click a card to attempt to match it against the current discard pile top card."""
 	# Block during ability execution
 	if table.is_executing_ability:
@@ -43,9 +43,9 @@ func on_card_right_clicked(card: Card3D) -> void:
 		return
 	print("[Match] Right-click attempt: %s vs top discard %s" % [
 		card.card_data.get_short_name(), top.get_short_name()])
-	await _attempt_match(card)
+	await _attempt_match(actor_seat_id, card)
 
-func _attempt_match(card: Card3D) -> void:
+func _attempt_match(actor_seat_id: int, card: Card3D) -> void:
 	"""Attempt to match a right-clicked card against the top of the discard pile.
 	The card always animates: lift → slide to discard → flip face-up (reveal).
 	Outcome (success / fail) is determined after the reveal."""
@@ -101,14 +101,14 @@ func _attempt_match(card: Card3D) -> void:
 	await get_tree().create_timer(0.15).timeout
 	
 	# STEP 6: Route based on outcome
-	var is_own_card = (owner_idx == 0)
+	var is_own_card = (owner_idx == actor_seat_id)
 	if matches:
 		if is_own_card:
 			await _handle_own_card_match(card, owner_idx)
 		else:
-			await _handle_opponent_card_match(card, owner_idx)
+			await _handle_opponent_card_match(actor_seat_id, card, owner_idx)
 	else:
-		await _handle_failed_match(card, original_parent, original_base_pos)
+		await _handle_failed_match(actor_seat_id, card, original_parent, original_base_pos)
 
 func _handle_own_card_match(card: Card3D, owner_idx: int) -> void:
 	"""Human matched one of their own cards — card is already at the discard hover position and face-up."""
@@ -148,7 +148,7 @@ func _handle_own_card_match(card: Card3D, owner_idx: int) -> void:
 	# Unlock for the next match
 	_unlock_matching()
 
-func _handle_opponent_card_match(card: Card3D, card_owner_idx: int) -> void:
+func _handle_opponent_card_match(actor_seat_id: int, card: Card3D, card_owner_idx: int) -> void:
 	"""Human grabbed an opponent's card and it matches — card is already at the discard hover position and face-up.
 	Opponent's card goes to discard; human must then give one of their own cards to opponent."""
 	print("[Match] Opponent card match! %s removed from Player %d's grid" % [
@@ -180,18 +180,19 @@ func _handle_opponent_card_match(card: Card3D, card_owner_idx: int) -> void:
 		table.discard_pile_visual.set_top_card(card.card_data)
 	card.queue_free()
 	
-	# Human must now pick one of their own cards to give to the opponent
+	# The matching seat must now pick one of their own cards to give to the opponent
+	table.give_card_actor_seat_idx = actor_seat_id
 	table.give_card_target_player_idx = card_owner_idx
 	table.is_choosing_give_card = true
-	_start_give_card_selection(card_owner_idx)
+	_start_give_card_selection(actor_seat_id, card_owner_idx)
 
-func _start_give_card_selection(target_idx: int) -> void:
-	"""Highlight human player's own cards so they can pick one to give to the opponent."""
+func _start_give_card_selection(actor_seat_id: int, target_idx: int) -> void:
+	"""Highlight the matching seat's cards so they can pick one to give to the opponent."""
 	print("[Match] Choose one of YOUR cards to give to Player %d" % (target_idx + 1))
 	if table.turn_ui:
 		table.turn_ui.update_action("Choose a card to give to Player %d!" % (target_idx + 1))
 	
-	var own_grid = table.player_grids[0]  # Human is always player 0
+	var own_grid = table.player_grids[actor_seat_id]
 	for i in range(4):
 		var c = own_grid.get_card_at(i)
 		if c:
@@ -202,20 +203,20 @@ func _start_give_card_selection(target_idx: int) -> void:
 		c.set_highlighted(true)
 		c.is_interactable = true
 
-func handle_give_card_selection(card: Card3D) -> void:
-	"""Human selected one of their own cards to give to the opponent after a successful match."""
-	# Verify the card belongs to the human player
+func handle_give_card_selection(actor_seat_id: int, card: Card3D) -> void:
+	"""A seat selected one of their own cards to give to the opponent after a successful match."""
 	var owner_idx = table._find_card_owner_idx(card)
-	if owner_idx != 0:
+	if owner_idx != actor_seat_id:
 		print("[Match] Choose one of YOUR OWN cards to give!")
 		return
 	
 	table.is_choosing_give_card = false
 	var target_idx = table.give_card_target_player_idx
+	table.give_card_actor_seat_idx = -1
 	table.give_card_target_player_idx = -1
 	
 	# Remove highlights from all own cards (main grid + penalty)
-	var own_grid = table.player_grids[0]
+	var own_grid = table.player_grids[actor_seat_id]
 	for i in range(4):
 		var c = own_grid.get_card_at(i)
 		if c:
@@ -239,6 +240,7 @@ func handle_give_card_selection(card: Card3D) -> void:
 	
 	# Change ownership
 	card.owner_player = table.players[target_idx]
+	card.owner_seat_id = target_idx
 	
 	# Move card to opponent's penalty position
 	var target_grid = table.player_grids[target_idx]
@@ -249,7 +251,7 @@ func handle_give_card_selection(card: Card3D) -> void:
 	target_grid.add_penalty_card(card, true)
 	await get_tree().create_timer(0.5).timeout
 	
-	print("[Match] Player %d gave card to Player %d. Match complete!" % [1, target_idx + 1])
+	print("[Match] Player %d gave card to Player %d. Match complete!" % [actor_seat_id + 1, target_idx + 1])
 	
 	# Unlock matching for the next discard event
 	_unlock_matching()
@@ -260,14 +262,14 @@ func handle_give_card_selection(card: Card3D) -> void:
 		table.give_card_needs_turn_start = false
 		await get_tree().create_timer(0.3).timeout
 		table.turn_manager.start_next_turn()
-	elif table.is_player_turn and table.turn_ui:
+	elif table.is_local_seat(actor_seat_id) and table.is_player_turn and table.turn_ui:
 		# Give-card happened during the human's own turn — restore the correct UI message
 		# and re-enable the appropriate interaction state.
 		if table.drawn_card:
 			# Human already drew — restore the swap-step state
 			table.turn_ui.update_action("Click your card to swap, OR click discard pile to use ability")
 			# Re-enable human grid cards for swapping (give-card cleanup disabled them all)
-			var grid = table.player_grids[0]
+			var grid = table.player_grids[actor_seat_id]
 			for i in range(4):
 				var c = grid.get_card_at(i)
 				if c and c != table.drawn_card:
@@ -279,7 +281,7 @@ func handle_give_card_selection(card: Card3D) -> void:
 			# Human hasn't drawn yet — restore the draw-step state
 			table.turn_ui.update_action("Press D to draw a card or click draw pile")
 
-func _handle_failed_match(card: Card3D, original_parent: Node3D, original_base_pos: Vector3) -> void:
+func _handle_failed_match(actor_seat_id: int, card: Card3D, original_parent: Node3D, original_base_pos: Vector3) -> void:
 	"""Card didn't match — red flash + shake above the discard pile, THEN snap back face-down, then penalty.
 	Card arrives here already at the discard hover position and face-up."""
 	print("[Match] Failed match! %s; returning card and issuing penalty." % card.card_data.get_short_name())
@@ -314,8 +316,8 @@ func _handle_failed_match(card: Card3D, original_parent: Node3D, original_base_p
 	card.move_to(original_base_pos, 0.2, false)
 	await get_tree().create_timer(0.25).timeout
 	
-	# Give human player a penalty card
-	await _give_penalty_card(0)
+	# Give the matching seat a penalty card
+	await _give_penalty_card(actor_seat_id)
 	
 	# Re-unlock matching
 	_unlock_matching()
@@ -341,6 +343,7 @@ func _give_penalty_card(player_idx: int) -> void:
 	penalty_card.card_clicked.connect(table._on_card_clicked)
 	penalty_card.card_right_clicked.connect(table._on_card_right_clicked)
 	penalty_card.owner_player = table.players[player_idx]
+	penalty_card.owner_seat_id = player_idx
 	
 	# Update draw pile visual immediately
 	if table.draw_pile_visual:

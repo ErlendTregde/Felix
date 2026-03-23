@@ -7,6 +7,7 @@ class_name Card3D
 @export var is_face_up: bool = false
 
 var owner_player: Player = null
+var owner_seat_id: int = -1
 var is_highlighted: bool = false
 var is_interactable: bool = true
 

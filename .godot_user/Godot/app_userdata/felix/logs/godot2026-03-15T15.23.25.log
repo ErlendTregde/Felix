@@ -1,0 +1,14 @@
+Godot Engine v4.6.stable.official.89cea1439 - https://godotengine.org
+
+SCRIPT ERROR: Parse Error: Could not find type "SeatState" in the current scope.
+   at: GDScript::reload (res://autoloads/steam_room_service.gd:272)
+ERROR: Failed to load script "res://autoloads/steam_room_service.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript.cpp:2907)
+ERROR: Failed to instantiate an autoload, script 'res://autoloads/steam_room_service.gd' does not inherit from 'Node'.
+   at: start (main/main.cpp:4407)
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2570)
+Felix Card Game - Event Bus initialized
+Felix Card Game - GameManager initialized
+CardMeshLibrary: Cached 54 card meshes.
+Steam singleton not available. Install or enable the Steam extension first.

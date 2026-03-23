@@ -1,40 +1,9 @@
-[gd_scene load_steps=6 format=3 uid="uid://dw7yw3qkoaae"]
+[gd_scene load_steps=3 format=3 uid="uid://dw7yw3qkoaae"]
 
-[ext_resource type="PackedScene" uid="uid://c5j1yw7qkn80f" path="res://scenes/main/camera_controller.tscn" id="1_camera"]
-[ext_resource type="Script" uid="uid://cjvrnj2ai16ty" path="res://scripts/game_table.gd" id="2_table"]
-[ext_resource type="PackedScene" uid="uid://h014oljtkmft" path="res://scenes/environment/room_blockout.tscn" id="3_room"]
-[ext_resource type="PackedScene" uid="uid://cn2m7aqfn7npc" path="res://assets/models/tableandchairs/round_table_and_chairs.glb" id="4_tablemodel"]
-
-[sub_resource type="Environment" id="Environment_1"]
-background_mode = 1
-background_color = Color(0.05, 0.04, 0.03, 1)
-ambient_light_source = 1
-ambient_light_color = Color(0.6, 0.5, 0.35, 1)
-ambient_light_energy = 0.55
-tonemap_mode = 2
-glow_enabled = true
-glow_intensity = 0.3
-glow_bloom = 0.1
+[ext_resource type="Script" uid="uid://cjvrnj2ai16ty" path="res://scripts/game_table.gd" id="1_table"]
+[ext_resource type="PackedScene" path="res://scenes/main/table_shell.tscn" id="2_shell"]
 
 [node name="GameTable" type="Node3D"]
-script = ExtResource("2_table")
+script = ExtResource("1_table")
 
-[node name="CameraController" parent="." instance=ExtResource("1_camera")]
-
-[node name="TableModel" parent="." instance=ExtResource("4_tablemodel")]
-transform = Transform3D(5.95388, 0, -5.95388, 0, 8.42002, 0, 5.95388, 0, 5.95388, 0, 0.0873, 0)
-
-[node name="Room" parent="." instance=ExtResource("3_room")]
-
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("Environment_1")
-
-[node name="Players" type="Node3D" parent="."]
-
-[node name="PositionMarkers" type="Node3D" parent="."]
-
-[node name="DrawPile" type="Node3D" parent="PositionMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 6.77, 0)
-
-[node name="DiscardPile" type="Node3D" parent="PositionMarkers"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 6.77, 0)
+[node name="Shell" parent="." instance=ExtResource("2_shell")]

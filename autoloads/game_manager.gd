@@ -18,9 +18,13 @@ var current_round: int = 0
 var current_player_index: int = 0
 var player_count: int = 2
 var knocker_id: int = -1
+var local_seat_index: int = 0
 
 # Players
 var players: Array = []  # Array of Player nodes
+var seat_contexts: Array[SeatContext] = []
+var round_state: RoundState = null
+var round_controller: FelixRoundController = null
 
 # Deck management
 var deck_manager: Node = null
@@ -158,8 +162,10 @@ func player_knock(player_id: int) -> void:
 	"""Handle a player knocking"""
 	if current_state != GameState.PLAYING:
 		return
-	
+
 	knocker_id = player_id
+	if player_id >= 0 and player_id < seat_contexts.size():
+		seat_contexts[player_id].has_knocked = true
 	# Track which players still need their final turn
 	_final_round_remaining.clear()
 	var idx = get_next_player_clockwise(player_id)
@@ -194,6 +200,8 @@ func get_current_player() -> Node:
 
 func set_player_ready(player_id: int, is_ready: bool = true) -> void:
 	"""Mark a player as ready (for initial viewing phase)"""
+	if player_id >= 0 and player_id < seat_contexts.size():
+		seat_contexts[player_id].is_ready = is_ready
 	if player_id >= 0 and player_id < players.size():
 		players[player_id].is_ready = is_ready
 		print("Player %d ready state: %s" % [player_id + 1, is_ready])
@@ -202,6 +210,11 @@ func set_player_ready(player_id: int, is_ready: bool = true) -> void:
 func are_all_players_ready() -> bool:
 	
 	"""Check if all players have marked themselves as ready"""
+	if not seat_contexts.is_empty():
+		for context in seat_contexts:
+			if not context.is_ready:
+				return false
+		return true
 	for player in players:
 		if not player.is_ready:
 			return false
@@ -210,6 +223,11 @@ func are_all_players_ready() -> bool:
 func get_ready_count() -> int:
 	"""Get the number of players who are ready"""
 	var count = 0
+	if not seat_contexts.is_empty():
+		for context in seat_contexts:
+			if context.is_ready:
+				count += 1
+		return count
 	for player in players:
 		if player.is_ready:
 			count += 1
@@ -217,5 +235,37 @@ func get_ready_count() -> int:
 
 func reset_all_ready_states() -> void:
 	"""Reset all players' ready states to false"""
+	for context in seat_contexts:
+		context.is_ready = false
 	for player in players:
 		player.is_ready = false
+
+func set_seat_contexts(contexts: Array[SeatContext], new_local_seat_index: int) -> void:
+	seat_contexts = contexts.duplicate()
+	local_seat_index = new_local_seat_index
+	player_count = seat_contexts.size()
+
+func bind_round_controller(controller: FelixRoundController) -> void:
+	round_controller = controller
+	round_state = controller.round_state if controller else null
+
+func set_round_state(new_round_state: RoundState) -> void:
+	round_state = new_round_state
+	if round_state:
+		seat_contexts = round_state.seat_contexts
+		local_seat_index = round_state.local_seat_index
+		player_count = seat_contexts.size()
+
+func get_seat_context(seat_id: int) -> SeatContext:
+	if seat_id < 0 or seat_id >= seat_contexts.size():
+		return null
+	return seat_contexts[seat_id]
+
+func is_local_seat(seat_id: int) -> bool:
+	return seat_id == local_seat_index
+
+func can_local_seat_act(seat_id: int) -> bool:
+	return is_local_seat(seat_id) and seat_id == current_player_index
+
+func get_final_round_remaining() -> Array[int]:
+	return _final_round_remaining.duplicate()

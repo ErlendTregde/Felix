@@ -84,5 +84,7 @@ func reparent_card_to_grid(card: Card3D, grid: PlayerGrid, card_position: int) -
 	# Add to grid's cards array and as child
 	grid.cards[card_position] = card
 	grid.add_child(card)
+	card.owner_player = grid.get_meta("owner_player") if grid.has_meta("owner_player") else null
+	card.owner_seat_id = grid.owner_seat_id
 	card.position = grid.card_positions[card_position]
 	card.base_position = card.global_position

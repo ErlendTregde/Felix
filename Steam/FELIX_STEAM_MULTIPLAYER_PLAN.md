@@ -50,3 +50,45 @@
   - [GodotSteam SteamMultiplayerPeer tutorial](https://godotsteam.com/tutorials/multiplayerpeer/)
   - [GodotSteam lobby tutorial](https://godotsteam.com/tutorials/lobbies/)
   - [Steam multiplayer forum thread](https://forum.godotengine.org/t/steam-multiplayer-questions/122894)
+
+## Phase 1 Implementation Notes
+
+- Felix now has a seat-based runtime model built around `SeatContext`, `RoundState`, `SlotRef`, `CardRef`, and `FelixRoundController`.
+- The current local mode still uses one local human plus bots, but the local seat is no longer hardcoded to seat `0`; it can be overridden in setup for validation.
+- Rules ownership now uses `owner_seat_id` on cards and grids. `owner_player` remains available only as a presentation convenience.
+- `FelixRoundController` now brokers ready, draw, swap, discard, match, knock, turn advancement, and public/private round snapshot generation so Phase 2 can build on a single round authority layer.
+
+## Phase 1.5 Identity And Seat Separation
+
+- Add a stable participant layer for local and future Steam players so identity is no longer derived from seat index.
+- Keep seats responsible for camera, lighting, knock-button placement, card-grid transforms, and turn order.
+- Keep participant identity responsible for display name, avatar color/skin, controller type, and future `steam_id`.
+- Make each `SeatContext` store the current occupant participant id so room snapshots can say who is sitting where without rewriting player identity.
+- Build setup flow from `participant_profiles + seat_assignment`, not from `seat index = player identity`.
+- Keep the current debug seat override semantics as `move the local participant to this seat`; this makes later Steam seat assignment behavior match local testing.
+- Add separate setup-only debug camera tooling so we can preview another seat without moving occupants; this is useful for later room snapshot validation.
+- Debug control split: `F1-F4` moves the local participant to a different seat.
+- Debug control split: `Shift+F1-F4` previews another seat with camera and local fill lights while leaving occupants unchanged.
+
+## Phase 2 Implementation Notes
+
+- Felix now boots into a simple launcher scene with two entry points: `Play vs AI` and `Steam Multiplayer`.
+- `AppFlow` owns scene routing between launcher, local play, and the Steam room so raw Steam callbacks no longer change scenes directly.
+- The cleaned borrowed Steam layer is now wrapped by Felix services:
+  - `SteamPlatformService` for Steam availability, lobby create/join/leave, and invite/join events.
+  - `FelixNetworkSession` for `SteamMultiplayerPeer` lifecycle and disconnect events.
+  - `SteamRoomService` for Felix room authority, seat assignment, ready states, room snapshots, and between-round session state.
+- Felix room/session data now lives in typed models:
+  - `RoomState`
+  - `RoomMemberState`
+  - `SeatState`
+  - `SessionScoreboard`
+- The room scene is now persistent and separate from gameplay:
+  - `SteamRoomScene` reuses the shared table shell.
+  - local seat camera and room lights follow the local seated Steam member.
+  - ready state, host start gating, leave-room flow, and room snapshot refresh all run through `SteamRoomService`.
+- Phase 2 currently stops at the room-to-round transition boundary:
+  - host can create the room, auto-seat members, sync readiness, and trigger round entry.
+  - round entry currently shows a controlled placeholder transition inside the room scene.
+  - full synchronized Steam gameplay actions remain Phase 3 work.
+- Steam invite and `+connect_lobby` startup flow is now handled through pending join state so the room service can open the Steam room even if the join request arrives very early during autoload startup.

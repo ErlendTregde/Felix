@@ -93,8 +93,7 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
 
-	# Tilt toward viewer (steep for bots so human camera can't see the front)
-	var is_bot: bool = (player_idx != 0)
+	var is_bot: bool = not table.is_local_seat(player_idx)
 	table.view_helper.tilt_card_towards_viewer(card1, is_bot)
 	table.view_helper.tilt_card_towards_viewer(card2, is_bot)
 	await get_tree().create_timer(0.25).timeout
@@ -154,7 +153,7 @@ func _bot_auto_return_cards(player_idx: int) -> void:
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
 
-	GameManager.set_player_ready(player_idx, true)
+	table.round_controller.request_ready_state(player_idx)
 	var ready_count = GameManager.get_ready_count()
 	table.viewing_ui.update_waiting_count(ready_count, table.num_players)
 	print("Bot Player %d finished viewing (%d/%d ready)" % [player_idx + 1, ready_count, table.num_players])
@@ -166,8 +165,8 @@ func _bot_auto_return_cards(player_idx: int) -> void:
 func auto_ready_other_players() -> void:
 	"""Debug function to auto-ready all bot players immediately"""
 	print("\n=== Auto-Ready Debug Activated ===")
-	for i in range(1, table.num_players):
-		if i >= GameManager.players.size():
+	for i in range(table.num_players):
+		if not table.is_bot_seat(i) or i >= GameManager.players.size():
 			continue
 		# Snap cards back instantly (skip smooth return for debug speed)
 		if table.initial_view_cards.has(i):
@@ -181,7 +180,7 @@ func auto_ready_other_players() -> void:
 				if c.is_face_up:
 					c.flip(false, 0.15)
 				c.move_to(orig_pos, 0.2, false)
-		GameManager.set_player_ready(i, true)
+		table.round_controller.request_ready_state(i)
 
 	var ready_count = GameManager.get_ready_count()
 	table.viewing_ui.update_waiting_count(ready_count, table.num_players)
@@ -197,8 +196,7 @@ func start_initial_viewing_phase() -> void:
 	Bots return automatically after a delay; human presses the Ready button.
 	"""
 	print("\n=== Starting Initial Viewing Phase ===")
-	GameManager.change_state(GameManager.GameState.INITIAL_VIEWING)
-	GameManager.reset_all_ready_states()
+	table.round_controller.begin_initial_viewing_phase()
 	table.initial_view_cards.clear()
 
 	# Fire-and-forget: all players lift their cards simultaneously
@@ -212,11 +210,19 @@ func start_initial_viewing_phase() -> void:
 		return
 
 	# Bots auto-return after a short viewing delay
-	for i in range(1, table.num_players):
-		_bot_auto_return_cards(i)  # async, runs independently
+	for i in range(table.num_players):
+		if table.is_bot_seat(i):
+			_bot_auto_return_cards(i)  # async, runs independently
 
 	# Show Ready button for the human player
-	table.viewing_ui.show_for_player(0, table.num_players)
+	var local_player: Player = table.players[table.local_seat_index] if table.local_seat_index < table.players.size() else null
+	var local_player_name := local_player.player_name if local_player != null else ""
+	table.viewing_ui.show_for_player(
+		table.local_seat_index,
+		table.num_players,
+		local_player_name,
+		table.get_seat_label(table.local_seat_index)
+	)
 	print("Memorize your bottom 2 cards. Press Ready when done.")
 	print("(Press A to auto-ready bots for testing)")
 
@@ -228,7 +234,7 @@ func _on_player_ready_pressed(player_id: int) -> void:
 	if table.initial_view_cards.has(player_id):
 		await return_bottom_cards_for_player(player_id)
 
-	GameManager.set_player_ready(player_id, true)
+	table.round_controller.request_ready_state(player_id)
 
 	var ready_count = GameManager.get_ready_count()
 	table.viewing_ui.update_waiting_count(ready_count, table.num_players)
@@ -255,5 +261,5 @@ func end_viewing_phase() -> void:
 
 	# Start the game
 	print("\n=== Game Starting ===")
-	GameManager.change_state(GameManager.GameState.PLAYING)
+	table.round_controller.begin_playing_phase()
 	table.turn_manager.start_next_turn()

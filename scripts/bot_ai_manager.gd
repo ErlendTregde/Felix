@@ -76,15 +76,15 @@ func execute_bot_turn(bot_id: int) -> void:
 				btn.simulate_press()
 			else:
 				# Fallback: no button found, knock directly
-				table.knock_manager.perform_knock(bot_id)
+				await table.round_controller.request_knock(bot_id)
 			return
 
 	# Hide knock buttons once the bot starts drawing (if visible)
 	table.knock_manager.hide_all_buttons()
 	
-	# Bot draws a card
-	table.drawn_card = await table.turn_manager.draw_card_from_pile()
-	if not table.drawn_card:
+	# Bot draws a card through the shared controller gate
+	var drew_card: bool = await table.round_controller.request_draw(bot_id)
+	if not drew_card or not table.drawn_card:
 		table.turn_manager.end_current_turn()
 		return
 	
@@ -108,7 +108,7 @@ func execute_bot_turn(bot_id: int) -> void:
 		# Bot picks a random card to swap (Option B) from ALL occupied slots
 		if swappable.size() > 0:
 			var target_card = swappable[randi() % swappable.size()]
-			await table.turn_manager.swap_cards(target_card, table.drawn_card)
+			await table.round_controller.request_swap(bot_id, target_card)
 		elif has_ability:
 			# No swappable cards at all — fall back to using the ability
 			print("Bot has no cards to swap — falling back to ability!")
@@ -132,6 +132,7 @@ func execute_bot_ability(bot_id: int, ability: CardData.AbilityType) -> void:
 	
 	# Add to discard pile data
 	table.deck_manager.add_to_discard(card.card_data)
+	table.match_claimed = false
 	table.match_manager._unlock_matching()  # New card on discard — matching now allowed
 	
 	# Update visual
@@ -369,10 +370,13 @@ func bot_execute_blind_swap(bot_id: int) -> void:
 	if neighbor_penalty_idx != -1:
 		neighbor_grid.penalty_cards[neighbor_penalty_idx] = own_card
 	
-	# Update owner_player references
+	# Update owner references
 	var temp_owner = own_card.owner_player
 	own_card.owner_player = neighbor_card.owner_player
 	neighbor_card.owner_player = temp_owner
+	var temp_owner_seat = own_card.owner_seat_id
+	own_card.owner_seat_id = neighbor_card.owner_seat_id
+	neighbor_card.owner_seat_id = temp_owner_seat
 	
 	# Animate both cards to new positions (while elevated)
 	own_card.move_to(own_target, 0.4, false)
@@ -549,10 +553,13 @@ func bot_execute_look_and_swap(bot_id: int) -> void:
 		if neighbor_penalty_idx != -1:
 			neighbor_grid.penalty_cards[neighbor_penalty_idx] = own_card
 		
-		# Update owner_player references
+		# Update owner references
 		var temp_owner = own_card.owner_player
 		own_card.owner_player = neighbor_card.owner_player
 		neighbor_card.owner_player = temp_owner
+		var temp_owner_seat = own_card.owner_seat_id
+		own_card.owner_seat_id = neighbor_card.owner_seat_id
+		neighbor_card.owner_seat_id = temp_owner_seat
 		
 		# Animate to new positions
 		own_card.move_to(own_target, 0.4, false)

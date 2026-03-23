@@ -1,0 +1,8 @@
+Godot Engine v4.6.stable.official.89cea1439 - https://godotengine.org
+
+ERROR: Failed to read the root certificate store.
+   at: get_system_ca_certificates (platform/windows/os_windows.cpp:2570)
+Felix Card Game - Event Bus initialized
+Felix Card Game - GameManager initialized
+CardMeshLibrary: Cached 54 card meshes.
+Steam singleton not available. Install or enable the Steam extension first.

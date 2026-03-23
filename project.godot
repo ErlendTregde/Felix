@@ -8,11 +8,15 @@
 
 config_version=5
 
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
 [application]
 
 config/name="Felix"
-run/main_scene="uid://dw7yw3qkoaae"
-config/features=PackedStringArray("4.5", "Forward Plus")
+run/main_scene="res://scenes/ui/launcher.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
@@ -20,6 +24,13 @@ config/icon="res://icon.svg"
 Events="*res://autoloads/events.gd"
 GameManager="*res://autoloads/game_manager.gd"
 CardMeshLibrary="*res://autoloads/card_mesh_library.gd"
+AppFlow="*res://autoloads/app_flow.gd"
+State="*res://Steam/globals/state.gd"
+p2p="*res://Steam/globals/p2p.gd"
+SteamManager="*res://Steam/globals/steamManager.gd"
+SteamPlatformService="*res://autoloads/steam_platform_service.gd"
+FelixNetworkSession="*res://autoloads/felix_network_session.gd"
+SteamRoomService="*res://autoloads/steam_room_service.gd"
 
 [display]
 
