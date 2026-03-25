@@ -7,9 +7,12 @@ var round_state: RoundState = RoundState.new()
 func init(game_table) -> void:
 	table = game_table
 	GameManager.bind_round_controller(self)
+	sync_runtime_state()
+
+func _ready() -> void:
+	# Node is now in the scene tree — multiplayer is accessible
 	if multiplayer.has_multiplayer_peer():
 		SteamRoundService.bind_round_controller(self)
-	sync_runtime_state()
 
 func _exit_tree() -> void:
 	if multiplayer.has_multiplayer_peer():
