@@ -7,7 +7,13 @@ var round_state: RoundState = RoundState.new()
 func init(game_table) -> void:
 	table = game_table
 	GameManager.bind_round_controller(self)
+	if multiplayer.has_multiplayer_peer():
+		SteamRoundService.bind_round_controller(self)
 	sync_runtime_state()
+
+func _exit_tree() -> void:
+	if multiplayer.has_multiplayer_peer():
+		SteamRoundService.release_round_controller()
 
 func configure_seats(players: Array[Player], seat_contexts: Array[SeatContext], new_local_seat_index: int) -> void:
 	round_state.set_seat_contexts(seat_contexts, new_local_seat_index)

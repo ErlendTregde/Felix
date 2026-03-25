@@ -92,3 +92,58 @@
   - round entry currently shows a controlled placeholder transition inside the room scene.
   - full synchronized Steam gameplay actions remain Phase 3 work.
 - Steam invite and `+connect_lobby` startup flow is now handled through pending join state so the room service can open the Steam room even if the join request arrives very early during autoload startup.
+
+## Phase 3 Implementation Notes
+
+Phase 3 implements the full synchronized Felix gameplay layer on top of the working Phase 2 lobby/room system.
+
+### Architecture
+
+- **Host-authoritative**: host runs all game logic. Clients send *intent* RPCs. Host validates, executes, then broadcasts filtered snapshots.
+- **`SteamRoundService` autoload** (`autoloads/steam_round_service.gd`): all gameplay RPCs live here (not on scene nodes) to survive scene transitions.  Holds `_round_controller: FelixRoundController`, `_pending_snapshots` buffer, and helpers `_get_seat_index_for_sender()` and `_broadcast_round_snapshot_to_all()`.
+- **RPC naming convention**: client→host intent RPCs are `client_request_*`; host→all broadcasts are `_client_*` (prefixed underscore).
+- **Private snapshots**: `FelixRoundController.get_private_snapshot_for(seat_id)` hides opponent card faces. Each peer receives only their own seat's private snapshot via `rpc_id`.
+- **Pending-snapshot buffer**: RPCs that arrive before `game_table.tscn` finishes loading are buffered and drained when `bind_round_controller()` is called.
+
+### Deck synchronisation
+
+Host broadcasts the post-shuffle draw-pile order as `Array[int]` of `card_id`s. Clients call `DeckManager.apply_sequence(ids)` to reorder locally, guaranteeing identical draw results without a shared PRNG seed.
+
+### Key gotchas
+
+- **Never `rpc_id(1, ...)` from the host to itself** — always guard with `if not multiplayer.is_server()`.
+- **Capture `card_data.card_id` before any `await` or `queue_free`** in host action handlers.
+- **`match_claimed` is host-only truth** — no client-side match tracking needed; reject via `is_processing_match` guard.
+- **`is_local` re-stamping**: host serializes `is_local` from its own perspective; guests override via `_restamp_local_flags()` in `_client_apply_room_snapshot`.
+
+### Implementation steps
+
+| Step | Milestone | Status |
+|------|-----------|--------|
+| 1 | Autoload skeleton + scene routing (all peers navigate IN_ROUND / WAITING) | ✅ Done |
+| 2 | GameTable multiplayer init (correct names, cameras, REMOTE_HUMAN seats) | ✅ Done |
+| 3 | Deal sync: deck sequence + private hand reveal | — |
+| 4 | Viewing phase sync: ready propagation, begin playing on all peers | — |
+| 5 | Turn loop: draw, swap, discard RPCs + client-side animation | — |
+| 6 | Abilities: look-own, look-opponent, blind-swap, look-and-swap (Queen) | — |
+| 7 | Matching: simultaneous right-click, rejection feedback, give-card flow | — |
+| 8 | Knock + final round: all peers see announcement, correct remaining turns | — |
+| 9 | Round end: reveal all, show scores, host returns room, session scoreboard | — |
+
+### Files created / modified in Phase 3
+
+| File | Change |
+|------|--------|
+| `autoloads/steam_round_service.gd` | **NEW** — RPC hub, snapshot broadcaster, pending buffer |
+| `project.godot` | `SteamRoundService` registered after `SteamRoomService` |
+| `autoloads/app_flow.gd` | `open_multiplayer_round()` added |
+| `autoloads/steam_room_service.gd` | `_client_room_transition` triggers `AppFlow` scene changes; `_restamp_local_flags()` added |
+| `scripts/steam_room.gd` | `round_overlay` placeholder removed |
+| `scripts/game_table.gd` | Multiplayer branches in `setup_players`, `_rebuild_participant_profiles`, `_on_play_again_pressed`; debug inputs guarded |
+| `scripts/felix_round_controller.gd` | `bind`/`release` `SteamRoundService` in `init`/`_exit_tree` |
+| `scripts/deck_manager.gd` | `apply_sequence(ids)` — Step 3 |
+| `scripts/dealing_manager.gd` | Multiplayer deal flow, `apply_private_hand()` — Step 3 |
+| `scripts/viewing_phase_manager.gd` | Route ready to RPC on clients — Step 4 |
+| `scripts/knock_manager.gd` | Route knock button to RPC on clients — Step 8 |
+| `scripts/ability_manager.gd` | Route ability inputs to RPCs on clients — Step 6 |
+| `scripts/match_manager.gd` | Route right-click to RPC on clients — Step 7 |

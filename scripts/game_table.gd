@@ -184,18 +184,18 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
-		# Deal cards
-		if event.keycode == KEY_ENTER and not is_dealing:
+		# Deal cards (local only — multiplayer dealing is host-driven)
+		if event.keycode == KEY_ENTER and not is_dealing and not multiplayer.has_multiplayer_peer():
 			dealing_manager.deal_cards_to_all_players()
-		
-		# Change player count
-		elif event.keycode == KEY_1:
+
+		# Change player count (local only)
+		elif event.keycode == KEY_1 and not multiplayer.has_multiplayer_peer():
 			change_player_count(1)
-		elif event.keycode == KEY_2:
+		elif event.keycode == KEY_2 and not multiplayer.has_multiplayer_peer():
 			change_player_count(2)
-		elif event.keycode == KEY_3:
+		elif event.keycode == KEY_3 and not multiplayer.has_multiplayer_peer():
 			change_player_count(3)
-		elif event.keycode == KEY_4:
+		elif event.keycode == KEY_4 and not multiplayer.has_multiplayer_peer():
 			change_player_count(4)
 		elif event.keycode == KEY_F1:
 			if event.shift_pressed:
@@ -230,8 +230,8 @@ func _input(event: InputEvent) -> void:
 			camera_controller.shake(0.2, 0.5)
 			print("Camera shake!")
 		
-		# Debug: Auto-ready all other players (for testing)
-		elif event.keycode == KEY_A:
+		# Debug: Auto-ready all other players (local only)
+		elif event.keycode == KEY_A and not multiplayer.has_multiplayer_peer():
 			viewing_manager.auto_ready_other_players()
 		
 		# Toggle test mode (ability cards)
@@ -298,13 +298,23 @@ func setup_players(count: int) -> void:
 	"""Initialize player grids and player objects"""
 	# Clear existing
 	clear_all_players()
-	
-	num_players = clampi(count, 1, 4)
+
+	if multiplayer.has_multiplayer_peer():
+		var rs := SteamRoomService.get_room_state()
+		num_players = rs.get_seated_member_count()
+		if num_players < 1:
+			num_players = 2
+	else:
+		num_players = clampi(count, 1, 4)
 	local_seat_index = _resolve_local_seat_index(num_players)
 	debug_view_seat_override = _sanitize_debug_view_seat_override(num_players)
 	seat_contexts.clear()
 	_rebuild_participant_profiles(num_players)
-	var seat_assignments := _build_local_participant_seat_assignment(num_players, local_seat_index)
+	var seat_assignments: Array[int]
+	if multiplayer.has_multiplayer_peer():
+		seat_assignments = _build_seat_assignments_from_room_state(num_players)
+	else:
+		seat_assignments = _build_local_participant_seat_assignment(num_players, local_seat_index)
 	
 	# Player positions around the round table (surface Y set dynamically)
 	var card_y := table_surface_y + 0.01  # Cards sit slightly above table surface
@@ -465,6 +475,15 @@ func _sanitize_debug_view_seat_override(player_count: int) -> int:
 
 func _rebuild_participant_profiles(player_count: int) -> void:
 	participant_profiles.clear()
+	if multiplayer.has_multiplayer_peer():
+		# Build profiles from SteamRoomService — is_local and control_type already stamped
+		var rs := SteamRoomService.get_room_state()
+		participant_profiles.resize(player_count)
+		for pid_variant in rs.participants_by_id.keys():
+			var pid := int(pid_variant)
+			if pid < player_count:
+				participant_profiles[pid] = rs.participants_by_id[pid_variant]
+		return
 	for participant_id in range(player_count):
 		var control_type := SeatContext.SeatControlType.LOCAL_HUMAN if participant_id == 0 else SeatContext.SeatControlType.BOT
 		var participant_profile = ParticipantProfileScript.new().configure(
@@ -475,6 +494,15 @@ func _rebuild_participant_profiles(player_count: int) -> void:
 			participant_id == 0
 		)
 		participant_profiles.append(participant_profile)
+
+func _build_seat_assignments_from_room_state(player_count: int) -> Array[int]:
+	var seat_assignments: Array[int] = []
+	seat_assignments.resize(player_count)
+	var rs := SteamRoomService.get_room_state()
+	for seat in rs.seat_states:
+		if seat.is_occupied() and seat.seat_index < player_count:
+			seat_assignments[seat.seat_index] = seat.occupant_participant_id
+	return seat_assignments
 
 func _build_local_participant_seat_assignment(player_count: int, desired_local_seat: int) -> Array[int]:
 	var seat_assignments: Array[int] = []
@@ -644,7 +672,11 @@ func _handle_round_end() -> void:
 		round_end_ui.show_results(summary, winner_id, knocker_name)
 
 func _on_play_again_pressed() -> void:
-	"""Start a new round — reset everything and re-deal."""
+	"""Start a new round — or return to Steam room in multiplayer."""
+	if multiplayer.has_multiplayer_peer():
+		if SteamRoomService.is_local_host():
+			SteamRoomService.finish_active_round()
+		return
 	print("\n=== Starting New Round ===")
 	
 	# Reset game state
