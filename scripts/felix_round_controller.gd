@@ -83,26 +83,28 @@ func request_draw(actor_seat_id: int) -> bool:
 		SteamRoundService.notify_client_draw(actor_seat_id, table.drawn_card.card_data.card_id)
 	return table.drawn_card != null
 
-func request_swap(actor_seat_id: int, target_card: Card3D) -> void:
+func request_swap(actor_seat_id: int, target_card: Card3D) -> bool:
 	if not _can_actor_take_turn_action(actor_seat_id):
-		return
+		return false
 	if not table.drawn_card:
 		print("Draw a card first! Press D")
-		return
+		return false
 	if not _card_belongs_to_seat(target_card, actor_seat_id):
 		print("That is not your card!")
-		return
+		return false
 	await table.turn_manager.swap_cards(target_card, table.drawn_card)
 	sync_runtime_state()
+	return true
 
-func request_discard_drawn(actor_seat_id: int) -> void:
+func request_discard_drawn(actor_seat_id: int) -> bool:
 	if not _can_actor_take_turn_action(actor_seat_id):
-		return
+		return false
 	if not table.drawn_card:
 		print("Draw a card first! Press D")
-		return
+		return false
 	await table.turn_manager.play_card_to_discard(table.drawn_card)
 	sync_runtime_state()
+	return true
 
 func request_ability_select(actor_seat_id: int, card: Card3D) -> void:
 	if not _can_actor_take_turn_action(actor_seat_id):
@@ -230,8 +232,6 @@ func _is_actor_turn(actor_seat_id: int) -> bool:
 
 func _can_actor_take_turn_action(actor_seat_id: int) -> bool:
 	if actor_seat_id < 0:
-		return false
-	if is_remote_human_seat(actor_seat_id):
 		return false
 	# Clients never execute actions locally — they route through RPCs
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():

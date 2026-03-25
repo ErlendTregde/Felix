@@ -265,7 +265,9 @@ func client_request_draw() -> void:
 	_do_client_draw(seat_idx, sender_peer)
 
 func _do_client_draw(seat_idx: int, _sender_peer: int) -> void:
-	await _round_controller.request_draw(seat_idx)
+	var did_draw := await _round_controller.request_draw(seat_idx)
+	if not did_draw:
+		push_warning("SteamRoundService: draw request declined by round controller for seat %d" % seat_idx)
 	# notify_client_draw is called inside request_draw after the animation — nothing more to do
 
 @rpc("any_peer", "reliable")
@@ -292,7 +294,9 @@ func client_request_swap(slot: int, is_penalty: bool) -> void:
 	_do_client_swap(seat_idx, target_card)
 
 func _do_client_swap(seat_idx: int, target_card: Card3D) -> void:
-	await _round_controller.request_swap(seat_idx, target_card)
+	var did_swap := await _round_controller.request_swap(seat_idx, target_card)
+	if not did_swap:
+		push_warning("SteamRoundService: swap request declined by round controller for seat %d" % seat_idx)
 
 @rpc("any_peer", "reliable")
 func client_request_discard_drawn() -> void:
@@ -308,4 +312,6 @@ func client_request_discard_drawn() -> void:
 	_do_client_discard(seat_idx)
 
 func _do_client_discard(seat_idx: int) -> void:
-	await _round_controller.request_discard_drawn(seat_idx)
+	var did_discard := await _round_controller.request_discard_drawn(seat_idx)
+	if not did_discard:
+		push_warning("SteamRoundService: discard request declined by round controller for seat %d" % seat_idx)
