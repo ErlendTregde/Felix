@@ -108,6 +108,34 @@ func _client_start_deal(remaining_ids: Array[int]) -> void:
 	if not multiplayer.is_server():
 		_round_controller.table.dealing_manager.deal_cards_to_all_players_client()
 
+# ---------------------------------------------------------------------------
+# Step 4: Viewing phase sync
+# ---------------------------------------------------------------------------
+
+@rpc("any_peer", "reliable")
+func client_request_viewing_ready() -> void:
+	if not multiplayer.is_server():
+		return
+	var seat_idx := _get_seat_index_for_sender()
+	if seat_idx < 0:
+		return
+	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
+		push_warning("SteamRoundService: viewing_ready from seat %d but state is not INITIAL_VIEWING" % seat_idx)
+		return
+	_round_controller.request_ready_state(seat_idx)
+	var ready_count := GameManager.get_ready_count()
+	_log("Viewing ready from seat %d — %d/%d ready" % [seat_idx, ready_count, _round_controller.table.num_players])
+	if GameManager.are_all_players_ready():
+		await get_tree().create_timer(0.5).timeout
+		_client_begin_playing_phase.rpc()
+
+@rpc("authority", "call_local", "reliable")
+func _client_begin_playing_phase() -> void:
+	if _round_controller == null:
+		return
+	_log("Begin playing phase on all peers")
+	_round_controller.table.viewing_manager.end_viewing_phase()
+
 @rpc("authority", "call_remote", "reliable")
 func _client_receive_private_hand(seat_index: int, hand_ids: Array[int]) -> void:
 	if _round_controller == null:

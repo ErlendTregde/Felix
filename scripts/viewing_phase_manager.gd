@@ -231,19 +231,32 @@ func start_initial_viewing_phase() -> void:
 	print("(Press A to auto-ready bots for testing)")
 
 func _on_player_ready_pressed(player_id: int) -> void:
-	"""Handle when a player presses the ready button.
-	Returns the human player's cards to the grid, then checks if all players are ready.
-	"""
+	"""Handle when a player presses the ready button."""
 	# Return the human player's cards first so they animate back smoothly
 	if table.initial_view_cards.has(player_id):
 		await return_bottom_cards_for_player(player_id)
 
-	table.round_controller.request_ready_state(player_id)
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		# Client: send ready intent to host and wait
+		SteamRoundService.client_request_viewing_ready.rpc_id(1)
+		table.viewing_ui.update_waiting_count(1, table.num_players)
+		print("Ready sent to host — waiting for others...")
+		return
 
+	# Host or local: mark ready locally
+	table.round_controller.request_ready_state(player_id)
 	var ready_count = GameManager.get_ready_count()
 	table.viewing_ui.update_waiting_count(ready_count, table.num_players)
 	print("Ready count: %d/%d" % [ready_count, table.num_players])
 
+	if multiplayer.has_multiplayer_peer():
+		# Host: check if all ready and broadcast begin; do not end locally yet
+		if GameManager.are_all_players_ready():
+			await get_tree().create_timer(0.5).timeout
+			SteamRoundService._client_begin_playing_phase.rpc()
+		return
+
+	# Local mode: existing flow
 	if GameManager.are_all_players_ready():
 		await get_tree().create_timer(0.5).timeout
 		end_viewing_phase()
