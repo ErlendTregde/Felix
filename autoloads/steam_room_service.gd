@@ -345,9 +345,23 @@ func _client_apply_room_snapshot(snapshot: Dictionary) -> void:
 		(snapshot.get("members_by_steam_id", {}) as Dictionary).size()
 	])
 	room_state = RoomStateScript.from_dict(snapshot)
+	_restamp_local_flags()
 	room_state_changed.emit()
 	if not room_state.round_active and room_state.get_phase() != RoomState.RoomPhase.IDLE:
 		_set_status("%d / %d ready" % [_count_ready_seats(), room_state.get_seated_member_count()])
+
+func _restamp_local_flags() -> void:
+	## Re-stamp is_local on every deserialized object from this client's perspective.
+	## Snapshots are built by the host, so is_local flags reflect the host's view.
+	## Guests must override them after deserialization.
+	var local_steam_id := SteamPlatformService.get_local_steam_id()
+	for member in room_state.members_by_steam_id.values():
+		member.is_local = (member.steam_id == local_steam_id)
+	for seat in room_state.seat_states:
+		seat.is_local = seat.is_occupied() and (seat.occupant_steam_id == local_steam_id)
+	for profile in room_state.participants_by_id.values():
+		profile.is_local = (profile.steam_id == local_steam_id)
+		profile.control_type = SeatContext.SeatControlType.LOCAL_HUMAN if profile.is_local else SeatContext.SeatControlType.REMOTE_HUMAN
 
 @rpc("authority", "call_local", "reliable")
 func _client_room_transition(phase_name: String, message: String = "") -> void:

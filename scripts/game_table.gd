@@ -446,9 +446,15 @@ func _on_draw_pile_clicked(_pile: CardPile) -> void:
 	await round_controller.request_draw(local_seat_index)
 
 func _resolve_local_seat_index(player_count: int) -> int:
-	if local_seat_override < 0:
-		return 0
-	return clampi(local_seat_override, 0, max(player_count - 1, 0))
+	if local_seat_override >= 0:
+		return clampi(local_seat_override, 0, max(player_count - 1, 0))
+	# In multiplayer, use the seat assigned by SteamRoomService
+	if multiplayer.has_multiplayer_peer():
+		var rs := SteamRoomService.get_room_state()
+		var seat_idx := rs.get_local_seat_index(SteamPlatformService.get_local_steam_id())
+		if seat_idx >= 0 and seat_idx < player_count:
+			return seat_idx
+	return 0
 
 func _sanitize_debug_view_seat_override(player_count: int) -> int:
 	if debug_view_seat_override < 0:
