@@ -23,9 +23,6 @@ const LOCAL_FILL_HEIGHT: float = 8.8
 @onready var leave_button: Button = $RoomUI/BottomBar/LeaveButton
 @onready var lobby_code_label: Label = $RoomUI/TopLeft/LobbyCodeRow/LobbyCodeLabel
 @onready var copy_button: Button = $RoomUI/TopLeft/LobbyCodeRow/CopyButton
-@onready var round_overlay: CenterContainer = $RoomUI/RoundOverlay
-@onready var round_label: Label = $RoomUI/RoundOverlay/RoundPanel/RoundLabel
-@onready var return_button: Button = $RoomUI/RoundOverlay/RoundPanel/ReturnButton
 
 var seat_visuals: Array[Node3D] = []
 var _debug_overlay: CanvasLayer = null
@@ -38,7 +35,6 @@ func _ready() -> void:
 	ready_button.pressed.connect(_on_ready_pressed)
 	start_button.pressed.connect(_on_start_pressed)
 	leave_button.pressed.connect(_on_leave_pressed)
-	return_button.pressed.connect(_on_return_pressed)
 	copy_button.pressed.connect(_on_copy_pressed)
 	SteamRoomService.ensure_room_flow_started()
 	_refresh_view()
@@ -101,9 +97,6 @@ func _refresh_buttons(room_state: RoomState) -> void:
 	copy_button.visible = show_code
 	if show_code:
 		lobby_code_label.text = "Lobby ID: %d" % room_state.lobby_id
-	round_overlay.visible = room_state.round_active
-	return_button.visible = room_state.round_active and is_host
-	round_label.text = "Round transition is active.\nFull synchronized Steam gameplay lands in Phase 3."
 
 func _refresh_seat_visuals(room_state: RoomState) -> void:
 	for visual in seat_visuals:
@@ -300,6 +293,3 @@ func _on_start_pressed() -> void:
 
 func _on_leave_pressed() -> void:
 	SteamRoomService.request_leave_room()
-
-func _on_return_pressed() -> void:
-	SteamRoomService.finish_active_round()

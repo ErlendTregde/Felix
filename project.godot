@@ -31,6 +31,7 @@ SteamManager="*res://Steam/globals/steamManager.gd"
 SteamPlatformService="*res://autoloads/steam_platform_service.gd"
 FelixNetworkSession="*res://autoloads/felix_network_session.gd"
 SteamRoomService="*res://autoloads/steam_room_service.gd"
+SteamRoundService="*res://autoloads/steam_round_service.gd"
 
 [display]
 

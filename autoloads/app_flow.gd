@@ -28,6 +28,10 @@ func open_multiplayer_menu(status_message: String = "") -> void:
 	_pending_status_message = status_message
 	_change_scene_if_needed(MULTIPLAYER_MENU_SCENE)
 
+func open_multiplayer_round(status_message: String = "") -> void:
+	_pending_status_message = status_message
+	_change_scene_if_needed(LOCAL_GAME_SCENE)
+
 func _change_scene_if_needed(scene_path: String) -> void:
 	var tree := get_tree()
 	if tree == null:

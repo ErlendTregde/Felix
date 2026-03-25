@@ -371,6 +371,10 @@ func _client_room_transition(phase_name: String, message: String = "") -> void:
 		_set_status(message)
 	room_transition.emit(phase_name)
 	room_state_changed.emit()
+	if phase_name == "IN_ROUND":
+		AppFlow.open_multiplayer_round()
+	elif phase_name == "WAITING":
+		AppFlow.open_steam_room()
 
 func _get_participant_color(participant_id: int) -> Color:
 	var colors: Array[Color] = [
