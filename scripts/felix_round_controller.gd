@@ -78,6 +78,9 @@ func request_draw(actor_seat_id: int) -> bool:
 		return false
 	await table.turn_manager.handle_draw_card()
 	sync_runtime_state()
+	# Notify the acting client of their drawn card's identity
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and table.drawn_card:
+		SteamRoundService.notify_client_draw(actor_seat_id, table.drawn_card.card_data.card_id)
 	return table.drawn_card != null
 
 func request_swap(actor_seat_id: int, target_card: Card3D) -> void:
@@ -125,6 +128,8 @@ func request_card_click(actor_seat_id: int, card: Card3D) -> void:
 func request_match(actor_seat_id: int, card: Card3D) -> void:
 	if actor_seat_id < 0:
 		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return  # Step 7: route through RPC
 	await table.match_manager.on_card_right_clicked(actor_seat_id, card)
 	sync_runtime_state()
 
@@ -139,12 +144,17 @@ func request_knock(actor_seat_id: int) -> void:
 		return
 	if not _is_actor_turn(actor_seat_id):
 		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return  # Step 8: route through RPC
 	await table.knock_manager.perform_knock(actor_seat_id)
 	sync_runtime_state()
 
 func complete_turn() -> void:
 	GameManager.next_turn()
 	sync_runtime_state()
+	# Broadcast updated turn state to all clients so they can advance their turn
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamRoundService._broadcast_round_snapshot_to_all()
 
 func get_public_snapshot() -> Dictionary:
 	sync_runtime_state()
@@ -222,6 +232,9 @@ func _can_actor_take_turn_action(actor_seat_id: int) -> bool:
 	if actor_seat_id < 0:
 		return false
 	if is_remote_human_seat(actor_seat_id):
+		return false
+	# Clients never execute actions locally — they route through RPCs
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		return false
 	if GameManager.current_state != GameManager.GameState.PLAYING and GameManager.current_state != GameManager.GameState.KNOCKED:
 		return false

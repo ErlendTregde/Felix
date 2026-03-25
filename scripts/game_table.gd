@@ -258,7 +258,10 @@ func _input(event: InputEvent) -> void:
 			if (GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED) and is_player_turn and not drawn_card and not is_drawing:
 				# Hide knock buttons once player starts drawing
 				knock_manager.hide_all_buttons()
-				round_controller.request_draw(local_seat_index)
+				if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+					SteamRoundService.client_request_draw.rpc_id(1)
+				else:
+					round_controller.request_draw(local_seat_index)
 
 # ===========================================
 # TABLE MODEL SETUP (GLB import)
@@ -431,7 +434,15 @@ func flip_all_cards() -> void:
 func _on_card_clicked(card: Card3D) -> void:
 	"""Handle card click — dispatch to appropriate component"""
 	if GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED:
-		round_controller.request_card_click(local_seat_index, card)
+		if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+			# Client: route swap to host via RPC; do local visual swap immediately
+			if drawn_card != null and is_player_turn:
+				var slot_info := _get_card_slot_info(card)
+				if slot_info.slot >= 0:
+					_apply_client_swap(card, slot_info.slot, slot_info.is_penalty)
+					SteamRoundService.client_request_swap.rpc_id(1, slot_info.slot, slot_info.is_penalty)
+		else:
+			round_controller.request_card_click(local_seat_index, card)
 		return
 	
 	# Debug/testing: flip card
@@ -448,13 +459,25 @@ func _on_card_right_clicked(card: Card3D) -> void:
 
 func _on_discard_pile_clicked(_pile: CardPile) -> void:
 	"""Handle discard pile click - play card to discard and use ability"""
-	await round_controller.request_discard_drawn(local_seat_index)
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		# Client: clean up the drawn card locally and let host handle the discard
+		if drawn_card and is_instance_valid(drawn_card):
+			drawn_card.queue_free()
+		drawn_card = null
+		if discard_pile_visual:
+			discard_pile_visual.set_interactive(false)
+		SteamRoundService.client_request_discard_drawn.rpc_id(1)
+	else:
+		await round_controller.request_discard_drawn(local_seat_index)
 
 func _on_draw_pile_clicked(_pile: CardPile) -> void:
 	"""Handle draw pile click - draw a card"""
 	# Hide knock buttons once player starts drawing
 	knock_manager.hide_all_buttons()
-	await round_controller.request_draw(local_seat_index)
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamRoundService.client_request_draw.rpc_id(1)
+	else:
+		await round_controller.request_draw(local_seat_index)
 
 func _resolve_local_seat_index(player_count: int) -> int:
 	if local_seat_override >= 0:
@@ -744,3 +767,53 @@ func _on_card_discarded_ui(card_data: Resource) -> void:
 	if discard_label_3d and card_data and card_data is CardData:
 		var cd: CardData = card_data as CardData
 		discard_label_3d.text = cd.get_rank_display()
+
+func _get_card_slot_info(card: Card3D) -> Dictionary:
+	"""Return {slot, is_penalty} for a card in any player grid, or slot=-1 if not found."""
+	for grid in player_grids:
+		for i in range(4):
+			if grid.get_card_at(i) == card:
+				return {"slot": i, "is_penalty": false}
+		for i in range(grid.penalty_cards.size()):
+			if grid.penalty_cards[i] == card:
+				return {"slot": i, "is_penalty": true}
+	return {"slot": -1, "is_penalty": false}
+
+func _apply_client_swap(old_card: Card3D, slot: int, is_penalty: bool) -> void:
+	"""Client-side visual swap: instantly place drawn_card into the grid slot."""
+	if drawn_card == null:
+		return
+	var grid = player_grids[local_seat_index]
+	# Discard the old card locally
+	deck_manager.add_to_discard(old_card.card_data)
+	if discard_pile_visual:
+		discard_pile_visual.set_count(deck_manager.discard_pile.size())
+		discard_pile_visual.set_top_card(old_card.card_data)
+	old_card.queue_free()
+	# Place drawn card into the slot
+	var new_card := drawn_card
+	drawn_card = null
+	new_card.is_interactable = false
+	if new_card.get_parent():
+		new_card.get_parent().remove_child(new_card)
+	if is_penalty:
+		if slot >= 0 and slot < grid.penalty_cards.size():
+			grid.penalty_cards[slot] = new_card
+			grid.add_child(new_card)
+			new_card.global_position = grid.to_global(grid.penalty_positions[slot]) if slot < grid.penalty_positions.size() else grid.global_position
+	else:
+		grid.cards[slot] = new_card
+		grid.add_child(new_card)
+		new_card.position = grid.card_positions[slot]
+		new_card.base_position = new_card.global_position
+	new_card.rotation = Vector3.ZERO
+	if new_card.is_face_up:
+		new_card.flip(false, 0.2)
+	# Disable all interactions until next turn
+	if discard_pile_visual:
+		discard_pile_visual.set_interactive(false)
+	for g in player_grids:
+		for i in range(4):
+			var c = g.get_card_at(i)
+			if c:
+				c.is_interactable = false
