@@ -205,6 +205,19 @@ func get_draw_pile_count() -> int:
 func get_discard_pile_count() -> int:
 	return discard_pile.size()
 
+func apply_sequence(ids: Array[int]) -> void:
+	"""Reorder draw pile to match the given card_id sequence (received from host)."""
+	var reordered: Array[CardData] = []
+	for id in ids:
+		var card_data = find_card_data_by_id(id)
+		if card_data:
+			reordered.append(card_data)
+	if reordered.size() == ids.size():
+		draw_pile = reordered
+		print("DeckManager: applied sequence — %d cards in draw pile" % draw_pile.size())
+	else:
+		push_warning("DeckManager: apply_sequence — found %d/%d cards" % [reordered.size(), ids.size()])
+
 func find_card_data_by_id(card_id: int) -> CardData:
 	"""Look up a CardData by its stable card_id. Searches draw pile, discard pile,
 	and the master deck list. Returns null if not found (e.g. card was removed)."""

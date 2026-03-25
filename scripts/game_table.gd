@@ -184,9 +184,10 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
-		# Deal cards (local only — multiplayer dealing is host-driven)
-		if event.keycode == KEY_ENTER and not is_dealing and not multiplayer.has_multiplayer_peer():
-			dealing_manager.deal_cards_to_all_players()
+		# Deal cards — host can trigger in multiplayer; local mode uses same key
+		if event.keycode == KEY_ENTER and not is_dealing:
+			if not multiplayer.has_multiplayer_peer() or multiplayer.is_server():
+				dealing_manager.deal_cards_to_all_players()
 
 		# Change player count (local only)
 		elif event.keycode == KEY_1 and not multiplayer.has_multiplayer_peer():

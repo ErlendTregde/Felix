@@ -86,3 +86,37 @@ func _apply_round_snapshot(snapshot: Dictionary) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _client_apply_round_snapshot(snapshot: Dictionary) -> void:
 	_apply_round_snapshot(snapshot)
+
+# ---------------------------------------------------------------------------
+# Step 3: Deal sync
+# ---------------------------------------------------------------------------
+
+func broadcast_deal_start(remaining_ids: Array[int]) -> void:
+	_client_start_deal.rpc(remaining_ids)
+
+func broadcast_private_hand(peer_id: int, seat_index: int, hand_ids: Array[int]) -> void:
+	_client_receive_private_hand.rpc_id(peer_id, seat_index, hand_ids)
+
+@rpc("authority", "call_local", "reliable")
+func _client_start_deal(remaining_ids: Array[int]) -> void:
+	if _round_controller == null:
+		push_warning("SteamRoundService: _client_start_deal — no round controller")
+		return
+	# Apply remaining draw pile sequence on all peers (host updates its own pile too)
+	_round_controller.table.deck_manager.apply_sequence(remaining_ids)
+	# Only clients start the deal animation — host already dealt
+	if not multiplayer.is_server():
+		_round_controller.table.dealing_manager.deal_cards_to_all_players_client()
+
+@rpc("authority", "call_remote", "reliable")
+func _client_receive_private_hand(seat_index: int, hand_ids: Array[int]) -> void:
+	if _round_controller == null:
+		push_warning("SteamRoundService: _client_receive_private_hand — no round controller")
+		return
+	var dm = _round_controller.table.dealing_manager
+	if _round_controller.table.is_dealing:
+		# Deal animation still running — buffer for after animation completes
+		dm._pending_private_hand_seat = seat_index
+		dm._pending_private_hand_ids = hand_ids
+	else:
+		dm.apply_private_hand(seat_index, hand_ids)

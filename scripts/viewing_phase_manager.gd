@@ -48,6 +48,9 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	"""
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
+	# In multiplayer, only lift cards for the local seat — remote peers manage their own
+	if multiplayer.has_multiplayer_peer() and not table.is_local_seat(player_idx):
+		return
 
 	var grid = table.player_grids[player_idx]
 	var bottom_positions = get_bottom_card_positions(player_idx)
@@ -209,10 +212,11 @@ func start_initial_viewing_phase() -> void:
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
 
-	# Bots auto-return after a short viewing delay
-	for i in range(table.num_players):
-		if table.is_bot_seat(i):
-			_bot_auto_return_cards(i)  # async, runs independently
+	# Bots auto-return after a short viewing delay (local only — no bots in multiplayer)
+	if not multiplayer.has_multiplayer_peer():
+		for i in range(table.num_players):
+			if table.is_bot_seat(i):
+				_bot_auto_return_cards(i)  # async, runs independently
 
 	# Show Ready button for the human player
 	var local_player: Player = table.players[table.local_seat_index] if table.local_seat_index < table.players.size() else null
