@@ -531,7 +531,35 @@ func _client_confirm_ability_local() -> void:
 	match ab.current_ability:
 		CardData.AbilityType.LOOK_OWN, CardData.AbilityType.LOOK_OPPONENT:
 			if ab.ability_target_card and is_instance_valid(ab.ability_target_card):
-				ab.ability_target_card.flip(false, 0.3)
+				var card := ab.ability_target_card
+				card.rotation = Vector3.ZERO
+				card.flip(false, 0.3)
+				# Find the card's actual grid slot to compute the correct return position
+				# (base_position was overwritten by move_to(view_pos) during reveal)
+				var card_grid = null
+				var card_position := -1
+				var card_penalty_pos := -1
+				for grid in player_grids:
+					for i in range(4):
+						if grid.get_card_at(i) == card:
+							card_grid = grid
+							card_position = i
+							break
+					if not card_grid:
+						for i in range(grid.penalty_cards.size()):
+							if grid.penalty_cards[i] == card:
+								card_grid = grid
+								card_penalty_pos = i
+								break
+					if card_grid:
+						break
+				if card_grid:
+					var target_pos: Vector3
+					if card_position != -1:
+						target_pos = card_grid.to_global(card_grid.card_positions[card_position])
+					else:
+						target_pos = card_grid.to_global(card_grid.penalty_positions[card_penalty_pos])
+					card.move_to(target_pos, 0.4, false)
 			ab.ability_target_card = null
 			ab.is_executing_ability = false
 			ab.current_ability = CardData.AbilityType.NONE
