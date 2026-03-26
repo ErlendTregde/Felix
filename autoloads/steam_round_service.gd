@@ -382,7 +382,7 @@ func client_request_ability_select(target_seat: int, slot: int, is_penalty: bool
 		push_warning("SteamRoundService: ability_select — no card at seat=%d slot=%d penalty=%s" % [target_seat, slot, is_penalty])
 		return
 	var card_id: int = card.card_data.card_id
-	var ability := tbl.ability_manager.current_ability
+	var ability: int = tbl.ability_manager.current_ability as int
 	await _round_controller.request_ability_select(actor_seat, card)
 	# After selection: reveal card privately for look abilities, or signal confirm-ready for swap abilities
 	match ability:
