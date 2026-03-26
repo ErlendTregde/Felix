@@ -568,6 +568,44 @@ func _client_match_card_removed(card_seat: int, card_slot: int, card_is_penalty:
 			grid.cards[card_slot] = null
 	if card and is_instance_valid(card):
 		card.queue_free()
+	_log("Match card removed on client: seat=%d slot=%d penalty=%s" % [card_seat, card_slot, card_is_penalty])
+
+## Broadcast a card removal from a host-side match (not via client RPC).
+func broadcast_host_match_card_removed(card_seat: int, card_slot: int, is_penalty: bool) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	_client_match_card_removed.rpc(card_seat, card_slot, is_penalty)
+
+## Broadcast a penalty card added during a host-side failed match.
+func broadcast_host_penalty_card_added(seat_idx: int, card_id: int) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	_client_add_penalty_card.rpc(seat_idx, card_id)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_add_penalty_card(seat_idx: int, card_id: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if seat_idx < 0 or seat_idx >= tbl.player_grids.size():
+		return
+	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
+	if card_data == null:
+		push_warning("SteamRoundService: _client_add_penalty_card — card_id %d not found" % card_id)
+		return
+	var grid = tbl.player_grids[seat_idx]
+	var card := tbl.card_scene.instantiate() as Card3D
+	tbl.add_child(card)
+	card.initialize(card_data, false)
+	card.is_interactable = false
+	card.card_clicked.connect(tbl._on_card_clicked)
+	card.card_right_clicked.connect(tbl._on_card_right_clicked)
+	card.owner_seat_id = seat_idx
+	card.global_position = tbl.draw_pile_marker.global_position
+	if card.get_parent():
+		card.get_parent().remove_child(card)
+	grid.add_penalty_card(card, true)
+	_log("Penalty card %s added to seat %d on client" % [card_data.get_short_name(), seat_idx])
 
 @rpc("authority", "call_remote", "reliable")
 func _client_begin_give_card(target_seat: int) -> void:
@@ -690,11 +728,11 @@ func _client_round_end_begin(card_ids: Dictionary, penalty_ids: Dictionary) -> v
 	if _round_controller == null:
 		return
 	var tbl = _round_controller.table
-	# Stamp all card data onto client's Card3D objects
+	# Phase 1: Stamp real card data onto existing Card3D objects in main grids
 	for seat_id in card_ids.keys():
-		if seat_id >= tbl.player_grids.size():
+		if int(seat_id) >= tbl.player_grids.size():
 			continue
-		var grid = tbl.player_grids[seat_id]
+		var grid = tbl.player_grids[int(seat_id)]
 		var seat_map: Dictionary = card_ids[seat_id]
 		for slot_str in seat_map.keys():
 			var slot: int = int(slot_str)
@@ -704,20 +742,53 @@ func _client_round_end_begin(card_ids: Dictionary, penalty_ids: Dictionary) -> v
 				var cd = tbl.deck_manager.find_card_data_by_id(card_id)
 				if cd:
 					card.initialize(cd, card.is_face_up)
+	# Phase 2: Stamp existing penalty cards OR create missing ones
 	for seat_id in penalty_ids.keys():
-		if seat_id >= tbl.player_grids.size():
+		if int(seat_id) >= tbl.player_grids.size():
 			continue
-		var grid = tbl.player_grids[seat_id]
+		var grid = tbl.player_grids[int(seat_id)]
 		var pen_map: Dictionary = penalty_ids[seat_id]
 		for slot_str in pen_map.keys():
 			var slot: int = int(slot_str)
 			var card_id: int = int(pen_map[slot_str])
-			if slot < grid.penalty_cards.size():
-				var card = grid.penalty_cards[slot]
-				if card:
-					var cd = tbl.deck_manager.find_card_data_by_id(card_id)
-					if cd:
-						card.initialize(cd, card.is_face_up)
+			var cd = tbl.deck_manager.find_card_data_by_id(card_id)
+			if cd == null:
+				continue
+			if slot < grid.penalty_cards.size() and grid.penalty_cards[slot] != null:
+				grid.penalty_cards[slot].initialize(cd, grid.penalty_cards[slot].is_face_up)
+			else:
+				# Penalty card exists on host but not on client — create it
+				var card := tbl.card_scene.instantiate() as Card3D
+				tbl.add_child(card)
+				card.initialize(cd, false)
+				card.is_interactable = false
+				card.card_clicked.connect(tbl._on_card_clicked)
+				card.card_right_clicked.connect(tbl._on_card_right_clicked)
+				card.owner_seat_id = int(seat_id)
+				card.global_position = tbl.draw_pile_marker.global_position
+				if card.get_parent():
+					card.get_parent().remove_child(card)
+				grid.add_penalty_card(card, false)
+				_log("Round end: created missing penalty card %s for seat %d" % [cd.get_short_name(), int(seat_id)])
+	# Phase 3: Remove client-side cards that no longer exist on host (e.g. matched away)
+	for seat_idx in range(tbl.player_grids.size()):
+		var grid = tbl.player_grids[seat_idx]
+		var host_main: Dictionary = {}
+		for k in card_ids.keys():
+			if int(k) == seat_idx:
+				host_main = card_ids[k]
+				break
+		for slot in range(4):
+			var card = grid.get_card_at(slot)
+			if card and is_instance_valid(card):
+				var host_has := false
+				for sk in host_main.keys():
+					if int(sk) == slot:
+						host_has = true
+						break
+				if not host_has:
+					grid.cards[slot] = null
+					card.queue_free()
 	_log("Round end: stamped card data on client — triggering round end")
 	# Now trigger round end locally (card data is correct)
 	GameManager.change_state(GameManager.GameState.ROUND_END)

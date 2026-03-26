@@ -124,7 +124,7 @@ func apply_private_hand(seat_index: int, hand_ids: Array[int]) -> void:
 		if card:
 			var card_data = table.deck_manager.find_card_data_by_id(hand_ids[slot])
 			if card_data:
-				card.card_data = card_data
+				card.initialize(card_data, card.is_face_up)
 			else:
 				push_warning("DealingManager: could not find card_id %d for private hand" % hand_ids[slot])
 	print("[CLIENT] Private hand stamped for seat %d" % seat_index)
