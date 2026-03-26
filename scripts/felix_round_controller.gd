@@ -78,9 +78,11 @@ func request_draw(actor_seat_id: int) -> bool:
 		return false
 	await table.turn_manager.handle_draw_card()
 	sync_runtime_state()
-	# Notify the acting client of their drawn card's identity
 	if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and table.drawn_card:
+		# Notify the acting client of their drawn card's identity
 		SteamRoundService.notify_client_draw(actor_seat_id, table.drawn_card.card_data.card_id)
+		# Show a face-down draw animation to all non-acting peers
+		SteamRoundService.broadcast_opponent_draw(actor_seat_id)
 	return table.drawn_card != null
 
 func request_swap(actor_seat_id: int, target_card: Card3D) -> bool:
@@ -92,8 +94,14 @@ func request_swap(actor_seat_id: int, target_card: Card3D) -> bool:
 	if not _card_belongs_to_seat(target_card, actor_seat_id):
 		print("That is not your card!")
 		return false
+	# Capture discarded card id before await (target_card goes to discard in swap)
+	var mp_server := multiplayer.has_multiplayer_peer() and multiplayer.is_server()
+	var discarded_card_id: int = target_card.card_data.card_id if mp_server and target_card.card_data else -1
+	var swap_slot_info: Dictionary = table._get_card_slot_info(target_card) if mp_server else {"slot": -1, "is_penalty": false}
 	await table.turn_manager.swap_cards(target_card, table.drawn_card)
 	sync_runtime_state()
+	if mp_server and discarded_card_id >= 0 and swap_slot_info.slot >= 0:
+		SteamRoundService.broadcast_opponent_swap(actor_seat_id, swap_slot_info.slot, swap_slot_info.is_penalty, discarded_card_id)
 	return true
 
 func request_discard_drawn(actor_seat_id: int) -> bool:
@@ -102,8 +110,13 @@ func request_discard_drawn(actor_seat_id: int) -> bool:
 	if not table.drawn_card:
 		print("Draw a card first! Press D")
 		return false
+	# Capture drawn card id before await (card gets freed during play_card_to_discard)
+	var mp_server := multiplayer.has_multiplayer_peer() and multiplayer.is_server()
+	var discarded_id: int = table.drawn_card.card_data.card_id if mp_server and table.drawn_card.card_data else -1
 	await table.turn_manager.play_card_to_discard(table.drawn_card)
 	sync_runtime_state()
+	if mp_server and discarded_id >= 0:
+		SteamRoundService.broadcast_opponent_discard(actor_seat_id, discarded_id)
 	return true
 
 func request_ability_select(actor_seat_id: int, card: Card3D) -> void:
@@ -227,6 +240,7 @@ func sync_runtime_state() -> void:
 		round_state.discard_pile_count = table.deck_manager.get_discard_pile_count()
 		var top_discard = table.deck_manager.peek_top_discard()
 		round_state.top_discard_name = top_discard.get_short_name() if top_discard else ""
+		round_state.top_discard_card_id = top_discard.card_id if top_discard else -1
 	_rebuild_card_refs()
 	GameManager.set_round_state(round_state)
 

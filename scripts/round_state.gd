@@ -14,6 +14,7 @@ var final_round_remaining: Array[int] = []
 var draw_pile_count: int = 0
 var discard_pile_count: int = 0
 var top_discard_name: String = ""
+var top_discard_card_id: int = -1
 var match_claimed: bool = false
 var pending_give_card_actor_seat_index: int = -1
 var pending_give_card_target_seat_index: int = -1
@@ -59,6 +60,7 @@ func get_public_snapshot() -> Dictionary:
 		"draw_pile_count": draw_pile_count,
 		"discard_pile_count": discard_pile_count,
 		"top_discard_name": top_discard_name,
+		"top_discard_card_id": top_discard_card_id,
 		"match_claimed": match_claimed,
 		"pending_give_card_actor_seat_index": pending_give_card_actor_seat_index,
 		"pending_give_card_target_seat_index": pending_give_card_target_seat_index,

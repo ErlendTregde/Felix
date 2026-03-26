@@ -487,10 +487,13 @@ func _on_card_right_clicked(card: Card3D) -> void:
 func _on_discard_pile_clicked(_pile: CardPile) -> void:
 	"""Handle discard pile click - play card to discard and use ability"""
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
-		# Client: clean up the drawn card locally and let host handle the discard
+		# Client: animate own drawn card to discard pile before host confirms
 		if drawn_card and is_instance_valid(drawn_card):
-			drawn_card.queue_free()
-		drawn_card = null
+			var discard_card := drawn_card
+			drawn_card = null  # Detach from tracking — snapshot cleanup will skip it
+			discard_card.is_interactable = false
+			discard_card.rotation = Vector3.ZERO
+			discard_card.move_to(discard_pile_marker.global_position, 0.35, false)
 		if discard_pile_visual:
 			discard_pile_visual.set_interactive(false)
 		SteamRoundService.client_request_discard_drawn.rpc_id(1)

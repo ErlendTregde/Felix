@@ -7,6 +7,8 @@ extends Node
 
 var _round_controller: FelixRoundController = null
 var _pending_snapshots: Array[Dictionary] = []
+# Tracks a face-down card animating on behalf of a remote player (draw/discard/swap)
+var _opponent_held_card: Card3D = null
 
 func _log(msg: String) -> void:
 	print("[SteamRoundService] %s" % msg)
@@ -94,6 +96,10 @@ func _apply_round_snapshot(snapshot: Dictionary) -> void:
 		tbl.draw_pile_visual.set_count(draw_count)
 	if discard_count >= 0 and tbl.discard_pile_visual:
 		tbl.discard_pile_visual.set_count(discard_count)
+		var top_discard_card_id: int = int(snapshot.get("top_discard_card_id", -1))
+		if top_discard_card_id >= 0:
+			var top_card_data = tbl.deck_manager.find_card_data_by_id(top_discard_card_id)
+			tbl.discard_pile_visual.set_top_card(top_card_data)
 		if top_discard != "" and tbl.discard_label_3d:
 			tbl.discard_label_3d.text = top_discard
 
@@ -695,6 +701,135 @@ func client_request_knock() -> void:
 	await _round_controller.request_knock(actor_seat)
 	# Snapshot broadcast happens inside complete_turn → but also broadcast here for the KNOCKED state change
 	_broadcast_round_snapshot_to_all()
+
+# ---------------------------------------------------------------------------
+# Remote player animation RPCs (opponent actions visible to all peers)
+# ---------------------------------------------------------------------------
+
+## Send a face-down draw animation to all peers that are NOT the acting seat.
+func broadcast_opponent_draw(acting_seat_idx: int) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	var rs := SteamRoomService.get_room_state()
+	for peer_id in multiplayer.get_peers():
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = rs.get_member(steam_id)
+		if member == null or member.seat_index == acting_seat_idx:
+			continue  # Skip the acting peer — they have their own draw animation
+		_client_opponent_drew.rpc_id(peer_id, acting_seat_idx)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_opponent_drew(seat_idx: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if seat_idx < 0 or seat_idx >= tbl.player_grids.size():
+		return
+	# Clean up any previous opponent held card
+	if _opponent_held_card and is_instance_valid(_opponent_held_card):
+		_opponent_held_card.queue_free()
+	_opponent_held_card = null
+	# Create a face-down placeholder card and animate from draw pile toward opponent's grid
+	var card := tbl.card_scene.instantiate() as Card3D
+	var dummy := CardData.new()
+	dummy.card_id = -1
+	tbl.add_child(card)
+	card.initialize(dummy, false)
+	card.is_interactable = false
+	card.global_position = tbl.draw_pile_marker.global_position
+	var held_pos: Vector3 = tbl.player_grids[seat_idx].global_position + Vector3(0, 1.2, 0)
+	card.move_to(held_pos, 0.5, false)
+	_opponent_held_card = card
+	_log("Opponent seat %d drew (face-down animation)" % seat_idx)
+
+## Send discard animation to all non-acting peers after any player discards their drawn card.
+func broadcast_opponent_discard(acting_seat_idx: int, card_id: int) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	var rs := SteamRoomService.get_room_state()
+	for peer_id in multiplayer.get_peers():
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = rs.get_member(steam_id)
+		if member == null or member.seat_index == acting_seat_idx:
+			continue
+		_client_opponent_discarded.rpc_id(peer_id, acting_seat_idx, card_id)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
+	var discard_pos: Vector3 = tbl.discard_pile_marker.global_position
+	# If we have a held card from the draw, animate that card to discard
+	if _opponent_held_card and is_instance_valid(_opponent_held_card):
+		var held := _opponent_held_card
+		_opponent_held_card = null
+		if card_data:
+			held.initialize(card_data, false)
+		held.rotation = Vector3.ZERO
+		held.move_to(discard_pos, 0.4, false)
+		await get_tree().create_timer(0.3).timeout
+		held.flip(true, 0.3)
+		await get_tree().create_timer(0.6).timeout
+		held.queue_free()
+	else:
+		# No held card — create one directly at discard position (shows card being placed)
+		if card_data == null:
+			return
+		var card := tbl.card_scene.instantiate() as Card3D
+		tbl.add_child(card)
+		card.initialize(card_data, true)
+		card.is_interactable = false
+		card.global_position = discard_pos + Vector3(0, 0.3, 0)
+		card.move_to(discard_pos, 0.25, false)
+		await get_tree().create_timer(0.6).timeout
+		card.queue_free()
+
+## Send swap animation to all non-acting peers after any player swaps drawn card into their grid.
+func broadcast_opponent_swap(acting_seat_idx: int, slot: int, is_penalty: bool, discarded_card_id: int) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	var rs := SteamRoomService.get_room_state()
+	for peer_id in multiplayer.get_peers():
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = rs.get_member(steam_id)
+		if member == null or member.seat_index == acting_seat_idx:
+			continue
+		_client_opponent_swapped.rpc_id(peer_id, acting_seat_idx, slot, is_penalty, discarded_card_id)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_opponent_swapped(seat_idx: int, slot: int, is_penalty: bool, _discarded_card_id: int) -> void:
+	# Visual-only: animate the held card toward the target slot, don't touch grid data.
+	# The grid card (face-down placeholder) stays in place and represents the newly swapped-in card.
+	# The discard pile visual is updated separately via the incoming snapshot's top_discard_card_id.
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if seat_idx < 0 or seat_idx >= tbl.player_grids.size():
+		return
+	var grid = tbl.player_grids[seat_idx]
+	if _opponent_held_card and is_instance_valid(_opponent_held_card):
+		var held := _opponent_held_card
+		_opponent_held_card = null
+		var target_pos: Vector3
+		if is_penalty and slot < grid.penalty_positions.size():
+			target_pos = grid.to_global(grid.penalty_positions[slot])
+		elif not is_penalty and slot < grid.card_positions.size():
+			target_pos = grid.to_global(grid.card_positions[slot])
+		else:
+			target_pos = grid.global_position
+		held.move_to(target_pos, 0.4, false)
+		await get_tree().create_timer(0.5).timeout
+		held.queue_free()
+	else:
+		_opponent_held_card = null
 
 # ---------------------------------------------------------------------------
 # Step 9: Round End RPCs
