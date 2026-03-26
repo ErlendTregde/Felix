@@ -90,6 +90,9 @@ func get_button(player_id: int) -> KnockButton3D:
 func _on_button_pressed(player_id: int) -> void:
 	"""A knock button was pressed (by human click or bot simulate_press)."""
 	hide_all_buttons()
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamRoundService.client_request_knock.rpc_id(1)
+		return
 	table.round_controller.request_knock(player_id)
 
 

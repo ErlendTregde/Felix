@@ -100,11 +100,13 @@ func _apply_round_snapshot(snapshot: Dictionary) -> void:
 	# Client-only: advance turn state when turn index changes
 	if multiplayer.is_server():
 		return
-	# Handle ROUND_END on client
+	# ROUND_END is handled by broadcast_round_end_to_all (separate RPC with card data)
 	if phase == "ROUND_END":
-		if GameManager.current_state != GameManager.GameState.ROUND_END:
-			GameManager.change_state(GameManager.GameState.ROUND_END)
 		return
+	# Sync KNOCKED state when a knock is broadcast via snapshot
+	if phase == "KNOCKED" and GameManager.current_state != GameManager.GameState.KNOCKED:
+		GameManager.knocker_id = int(snapshot.get("knocker_seat_index", -1))
+		GameManager.change_state(GameManager.GameState.KNOCKED)
 	if phase not in ["PLAYING", "KNOCKED"]:
 		return
 	var prev_turn: int = GameManager.current_player_index
@@ -369,6 +371,9 @@ func client_request_ability_select(target_seat: int, slot: int, is_penalty: bool
 	if GameManager.current_player_index != actor_seat:
 		return
 	var tbl = _round_controller.table
+	# Ignore if already waiting for SPACE confirm (prevents double-reveal on rapid clicks)
+	if tbl.ability_manager.awaiting_ability_confirmation:
+		return
 	var card: Card3D = null
 	if is_penalty:
 		if target_seat >= 0 and target_seat < tbl.player_grids.size():
@@ -502,3 +507,217 @@ func client_request_queen_choice(do_swap: bool) -> void:
 		await tbl.ability_manager._on_swap_chosen()
 	else:
 		await tbl.ability_manager._on_no_swap_chosen()
+
+# ---------------------------------------------------------------------------
+# Step 7: Matching RPCs
+# ---------------------------------------------------------------------------
+
+@rpc("any_peer", "reliable")
+func client_request_match(target_seat: int, slot: int, is_penalty: bool) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_peer := multiplayer.get_remote_sender_id()
+	var actor_seat := _get_seat_index_for_sender()
+	if actor_seat < 0 or _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	# Fast-reject if match window already locked on host
+	if tbl.match_manager.is_processing_match or tbl.match_manager.match_claimed:
+		return
+	var card: Card3D = null
+	if is_penalty:
+		if target_seat >= 0 and target_seat < tbl.player_grids.size():
+			var grid = tbl.player_grids[target_seat]
+			if slot >= 0 and slot < grid.penalty_cards.size():
+				card = grid.penalty_cards[slot]
+	else:
+		if target_seat >= 0 and target_seat < tbl.player_grids.size():
+			card = tbl.player_grids[target_seat].get_card_at(slot)
+	if card == null:
+		return
+	# Capture match info before await (card may be freed)
+	var top_discard = tbl.deck_manager.peek_top_discard()
+	var did_match: bool = top_discard != null and card.card_data.rank == top_discard.rank
+	var is_own_card: bool = (target_seat == actor_seat)
+	await _round_controller.request_match(actor_seat, card)
+	_broadcast_round_snapshot_to_all()
+	# Notify all clients about the card that was removed (successful match)
+	if did_match:
+		_client_match_card_removed.rpc(target_seat, slot, is_penalty)
+	# If opponent match, actor must give a card
+	if tbl.match_manager.is_choosing_give_card and tbl.match_manager.give_card_actor_seat_idx == actor_seat:
+		_client_begin_give_card.rpc_id(sender_peer, tbl.match_manager.give_card_target_player_idx)
+
+## Removes a matched card from all clients' grids (called after a successful match on host).
+@rpc("authority", "call_remote", "reliable")
+func _client_match_card_removed(card_seat: int, card_slot: int, card_is_penalty: bool) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if card_seat < 0 or card_seat >= tbl.player_grids.size():
+		return
+	var grid = tbl.player_grids[card_seat]
+	var card: Card3D = null
+	if card_is_penalty:
+		if card_slot >= 0 and card_slot < grid.penalty_cards.size():
+			card = grid.penalty_cards[card_slot]
+			grid.penalty_cards[card_slot] = null
+	else:
+		card = grid.get_card_at(card_slot)
+		if card:
+			grid.cards[card_slot] = null
+	if card and is_instance_valid(card):
+		card.queue_free()
+
+@rpc("authority", "call_remote", "reliable")
+func _client_begin_give_card(target_seat: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	var local_seat := _round_controller.get_local_seat_index()
+	tbl.match_manager.is_choosing_give_card = true
+	tbl.match_manager.give_card_target_player_idx = target_seat
+	tbl.match_manager.give_card_actor_seat_idx = local_seat
+	tbl.match_manager._start_give_card_selection(local_seat, target_seat)
+	_log("Give-card mode started — client seat %d must give to seat %d" % [local_seat, target_seat])
+
+@rpc("any_peer", "reliable")
+func client_request_give_card(slot: int, is_penalty: bool) -> void:
+	if not multiplayer.is_server():
+		return
+	var actor_seat := _get_seat_index_for_sender()
+	if actor_seat < 0 or _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if not tbl.match_manager.is_choosing_give_card:
+		return
+	if tbl.match_manager.give_card_actor_seat_idx != actor_seat:
+		return
+	var card: Card3D = null
+	if is_penalty:
+		if actor_seat < tbl.player_grids.size():
+			var grid = tbl.player_grids[actor_seat]
+			if slot >= 0 and slot < grid.penalty_cards.size():
+				card = grid.penalty_cards[slot]
+	else:
+		if actor_seat < tbl.player_grids.size():
+			card = tbl.player_grids[actor_seat].get_card_at(slot)
+	if card == null:
+		push_warning("SteamRoundService: give_card — no card at seat=%d slot=%d penalty=%s" % [actor_seat, slot, is_penalty])
+		return
+	var target_seat: int = tbl.match_manager.give_card_target_player_idx
+	await _round_controller.request_give_card(actor_seat, card)
+	_broadcast_round_snapshot_to_all()
+	# Notify all clients: given card removed from actor, added as penalty to target
+	_client_give_card_done.rpc(actor_seat, slot, is_penalty, target_seat)
+
+## Updates all clients after give-card: removes card from giver's grid, adds as penalty to recipient.
+@rpc("authority", "call_remote", "reliable")
+func _client_give_card_done(actor_seat: int, actor_slot: int, actor_is_penalty: bool, target_seat: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	# Remove from actor's grid
+	if actor_seat >= 0 and actor_seat < tbl.player_grids.size():
+		var actor_grid = tbl.player_grids[actor_seat]
+		var card: Card3D = null
+		if actor_is_penalty:
+			if actor_slot >= 0 and actor_slot < actor_grid.penalty_cards.size():
+				card = actor_grid.penalty_cards[actor_slot]
+				actor_grid.penalty_cards[actor_slot] = null
+		else:
+			card = actor_grid.get_card_at(actor_slot)
+			if card:
+				actor_grid.cards[actor_slot] = null
+		if card and is_instance_valid(card):
+			# Re-parent and place in target's penalty slot
+			if card.get_parent():
+				card.get_parent().remove_child(card)
+			var target_grid = tbl.player_grids[target_seat]
+			card.owner_seat_id = target_seat
+			target_grid.add_penalty_card(card, false)
+	tbl.match_manager.is_choosing_give_card = false
+	tbl.match_manager.give_card_actor_seat_idx = -1
+	tbl.match_manager.give_card_target_player_idx = -1
+
+# ---------------------------------------------------------------------------
+# Step 8: Knock RPCs
+# ---------------------------------------------------------------------------
+
+@rpc("any_peer", "reliable")
+func client_request_knock() -> void:
+	if not multiplayer.is_server():
+		return
+	var actor_seat := _get_seat_index_for_sender()
+	if actor_seat < 0 or _round_controller == null:
+		return
+	if GameManager.current_player_index != actor_seat:
+		push_warning("SteamRoundService: knock from seat %d but it's seat %d's turn" % [actor_seat, GameManager.current_player_index])
+		return
+	await _round_controller.request_knock(actor_seat)
+	# Snapshot broadcast happens inside complete_turn → but also broadcast here for the KNOCKED state change
+	_broadcast_round_snapshot_to_all()
+
+# ---------------------------------------------------------------------------
+# Step 9: Round End RPCs
+# ---------------------------------------------------------------------------
+
+## Host collects all card IDs from all grids and sends to each peer, then triggers round end.
+func broadcast_round_end_to_all(tbl) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	# Build: { seat_id: { slot: card_id, ... }, "penalty": { seat_id: { slot: card_id } } }
+	var card_ids: Dictionary = {}
+	var penalty_ids: Dictionary = {}
+	for seat_id in range(tbl.player_grids.size()):
+		var grid = tbl.player_grids[seat_id]
+		var seat_map: Dictionary = {}
+		for i in range(4):
+			var c = grid.get_card_at(i)
+			if c and c.card_data:
+				seat_map[i] = c.card_data.card_id
+		card_ids[seat_id] = seat_map
+		var pen_map: Dictionary = {}
+		for i in range(grid.penalty_cards.size()):
+			var pc = grid.penalty_cards[i]
+			if pc and pc.card_data:
+				pen_map[i] = pc.card_data.card_id
+		penalty_ids[seat_id] = pen_map
+	_client_round_end_begin.rpc(card_ids, penalty_ids)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_round_end_begin(card_ids: Dictionary, penalty_ids: Dictionary) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	# Stamp all card data onto client's Card3D objects
+	for seat_id in card_ids.keys():
+		if seat_id >= tbl.player_grids.size():
+			continue
+		var grid = tbl.player_grids[seat_id]
+		var seat_map: Dictionary = card_ids[seat_id]
+		for slot_str in seat_map.keys():
+			var slot: int = int(slot_str)
+			var card_id: int = int(seat_map[slot_str])
+			var card = grid.get_card_at(slot)
+			if card:
+				var cd = tbl.deck_manager.find_card_data_by_id(card_id)
+				if cd:
+					card.initialize(cd, card.is_face_up)
+	for seat_id in penalty_ids.keys():
+		if seat_id >= tbl.player_grids.size():
+			continue
+		var grid = tbl.player_grids[seat_id]
+		var pen_map: Dictionary = penalty_ids[seat_id]
+		for slot_str in pen_map.keys():
+			var slot: int = int(slot_str)
+			var card_id: int = int(pen_map[slot_str])
+			if slot < grid.penalty_cards.size():
+				var card = grid.penalty_cards[slot]
+				if card:
+					var cd = tbl.deck_manager.find_card_data_by_id(card_id)
+					if cd:
+						card.initialize(cd, card.is_face_up)
+	_log("Round end: stamped card data on client — triggering round end")
+	# Now trigger round end locally (card data is correct)
+	GameManager.change_state(GameManager.GameState.ROUND_END)

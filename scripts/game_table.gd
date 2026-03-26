@@ -439,6 +439,12 @@ func _on_card_clicked(card: Card3D) -> void:
 	"""Handle card click — dispatch to appropriate component"""
 	if GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED:
 		if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+			# Give-card selection takes priority and can happen outside of the player's turn
+			if match_manager.is_choosing_give_card and match_manager.give_card_actor_seat_idx == local_seat_index:
+				var slot_info := _get_card_slot_info(card)
+				if slot_info.slot >= 0:
+					SteamRoundService.client_request_give_card.rpc_id(1, slot_info.slot, slot_info.is_penalty)
+				return
 			if not is_player_turn:
 				return
 			if ability_manager.is_executing_ability:
@@ -471,6 +477,11 @@ func _on_card_clicked(card: Card3D) -> void:
 
 func _on_card_right_clicked(card: Card3D) -> void:
 	"""Handle card right-click — dispatch to match manager"""
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		var slot_info := _get_card_slot_info(card)
+		if slot_info.slot >= 0:
+			SteamRoundService.client_request_match.rpc_id(1, card.owner_seat_id, slot_info.slot, slot_info.is_penalty)
+		return
 	round_controller.request_match(local_seat_index, card)
 
 func _on_discard_pile_clicked(_pile: CardPile) -> void:
@@ -738,13 +749,16 @@ func _on_game_state_changed(state_name: String) -> void:
 
 func _handle_round_end() -> void:
 	"""Execute the full round-end sequence: reveal, score, show UI."""
+	# In multiplayer, host broadcasts full card data to all clients first
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamRoundService.broadcast_round_end_to_all(self)
 	# Hide turn UI and knock buttons
 	if turn_ui:
 		turn_ui.hide_ui()
 	knock_manager.hide_all_buttons()
-	
+
 	await scoring_manager.execute_round_end()
-	
+
 	# Show round end UI
 	var summary = scoring_manager.get_score_summary()
 	var scores = scoring_manager.calculate_all_scores()
