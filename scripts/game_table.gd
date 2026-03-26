@@ -154,8 +154,8 @@ func _ready() -> void:
 	# Create swap choice UI (Queen ability)
 	swap_choice_ui = swap_choice_ui_scene.instantiate()
 	add_child(swap_choice_ui)
-	swap_choice_ui.swap_chosen.connect(ability_manager._on_swap_chosen)
-	swap_choice_ui.no_swap_chosen.connect(ability_manager._on_no_swap_chosen)
+	swap_choice_ui.swap_chosen.connect(_on_queen_swap_chosen)
+	swap_choice_ui.no_swap_chosen.connect(_on_queen_no_swap_chosen)
 	
 	# Create round end UI
 	round_end_ui = round_end_ui_scene.instantiate()
@@ -222,7 +222,11 @@ func _input(event: InputEvent) -> void:
 		# Flip all cards / Confirm ability viewing
 		elif event.keycode == KEY_SPACE:
 			if ability_manager.awaiting_ability_confirmation:
-				round_controller.request_ability_confirm(local_seat_index)
+				if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+					SteamRoundService.client_request_ability_confirm.rpc_id(1)
+					_client_confirm_ability_local()
+				else:
+					round_controller.request_ability_confirm(local_seat_index)
 			else:
 				flip_all_cards()
 		
@@ -435,8 +439,20 @@ func _on_card_clicked(card: Card3D) -> void:
 	"""Handle card click — dispatch to appropriate component"""
 	if GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED:
 		if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+			if not is_player_turn:
+				return
+			if ability_manager.is_executing_ability:
+				# Client: route ability card selection to host
+				var slot_info := _get_card_slot_info(card)
+				if slot_info.slot >= 0:
+					SteamRoundService.client_request_ability_select.rpc_id(1, card.owner_seat_id, slot_info.slot, slot_info.is_penalty)
+					# For multi-step abilities (BLIND_SWAP, LOOK_AND_SWAP): show local visual feedback
+					var ab_type := ability_manager.current_ability
+					if ab_type == CardData.AbilityType.BLIND_SWAP or ab_type == CardData.AbilityType.LOOK_AND_SWAP:
+						ability_manager.handle_ability_target_selection(card)
+				return
 			# Client: route swap to host via RPC; do local visual swap immediately
-			if drawn_card != null and is_player_turn:
+			if drawn_card != null:
 				var slot_info := _get_card_slot_info(card)
 				if slot_info.slot >= 0:
 					_apply_client_swap(card, slot_info.slot, slot_info.is_penalty)
@@ -478,6 +494,50 @@ func _on_draw_pile_clicked(_pile: CardPile) -> void:
 		SteamRoundService.client_request_draw.rpc_id(1)
 	else:
 		await round_controller.request_draw(local_seat_index)
+
+func _on_queen_swap_chosen() -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamRoundService.client_request_queen_choice.rpc_id(1, true)
+		ability_manager._clear_queen_state()
+		swap_choice_ui.hide_choice()
+		return
+	await ability_manager._on_swap_chosen()
+
+func _on_queen_no_swap_chosen() -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamRoundService.client_request_queen_choice.rpc_id(1, false)
+		ability_manager._clear_queen_state()
+		swap_choice_ui.hide_choice()
+		return
+	await ability_manager._on_no_swap_chosen()
+
+func _client_confirm_ability_local() -> void:
+	"""Client-side cleanup after pressing SPACE to confirm an ability — no turn end."""
+	var ab := ability_manager
+	if not ab.awaiting_ability_confirmation:
+		return
+	ab.awaiting_ability_confirmation = false
+	match ab.current_ability:
+		CardData.AbilityType.LOOK_OWN, CardData.AbilityType.LOOK_OPPONENT:
+			if ab.ability_target_card and is_instance_valid(ab.ability_target_card):
+				ab.ability_target_card.flip(false, 0.3)
+			ab.ability_target_card = null
+			ab.is_executing_ability = false
+			ab.current_ability = CardData.AbilityType.NONE
+		CardData.AbilityType.BLIND_SWAP:
+			if ab.blind_swap_first_card and is_instance_valid(ab.blind_swap_first_card):
+				ab.blind_swap_first_card.is_elevation_locked = false
+				ab.blind_swap_first_card.set_highlighted(false)
+			if ab.blind_swap_second_card and is_instance_valid(ab.blind_swap_second_card):
+				ab.blind_swap_second_card.is_elevation_locked = false
+				ab.blind_swap_second_card.set_highlighted(false)
+			ab.blind_swap_first_card = null
+			ab.blind_swap_second_card = null
+			ab.is_executing_ability = false
+			ab.current_ability = CardData.AbilityType.NONE
+		CardData.AbilityType.LOOK_AND_SWAP:
+			# Keep state until _client_queen_display arrives from host
+			pass
 
 func _resolve_local_seat_index(player_count: int) -> int:
 	if local_seat_override >= 0:

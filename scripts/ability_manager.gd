@@ -482,6 +482,19 @@ func _queen_remove_labels() -> void:
 func confirm_look_and_swap() -> void:
 	"""Confirm Queen card selection and proceed to side-by-side viewing"""
 	awaiting_ability_confirmation = false
+	# In multiplayer with a remote acting player: send card IDs to that client instead of
+	# showing the choice UI locally on the host.
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var actor_seat := GameManager.current_player_index
+		if table.round_controller.is_remote_human_seat(actor_seat):
+			var c1 := look_and_swap_first_card
+			var c2 := look_and_swap_second_card
+			SteamRoundService.notify_client_queen_display(
+				actor_seat,
+				c1.owner_seat_id, look_and_swap_first_slot, look_and_swap_first_penalty_slot, c1.card_data.card_id,
+				c2.owner_seat_id, look_and_swap_second_slot, look_and_swap_second_penalty_slot, c2.card_data.card_id
+			)
+			return
 	await display_cards_for_choice()
 
 func confirm_blind_swap() -> void:

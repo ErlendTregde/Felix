@@ -267,12 +267,19 @@ func play_card_to_discard(card: Card3D) -> void:
 		table.discard_pile_visual.set_count(table.deck_manager.discard_pile.size())
 		table.discard_pile_visual.set_top_card(card.card_data)
 	
+	# Capture ability before queue_free
+	var ability = card.card_data.get_ability()
+
 	# Clean up the card
 	card.queue_free()
 	table.drawn_card = null
-	
-	# Check for ability
-	var ability = card.card_data.get_ability()
+
+	# Notify the acting remote client that an ability is starting (multiplayer host only)
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and ability != CardData.AbilityType.NONE:
+		var actor_seat := GameManager.current_player_index
+		if table.round_controller.is_remote_human_seat(actor_seat):
+			SteamRoundService.notify_client_ability_start(actor_seat, ability as int)
+
 	if ability == CardData.AbilityType.LOOK_OWN:  # 7 or 8
 		await table.ability_manager.execute_ability_look_own()
 	elif ability == CardData.AbilityType.LOOK_OPPONENT:  # 9 or 10

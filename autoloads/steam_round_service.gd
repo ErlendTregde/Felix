@@ -100,6 +100,11 @@ func _apply_round_snapshot(snapshot: Dictionary) -> void:
 	# Client-only: advance turn state when turn index changes
 	if multiplayer.is_server():
 		return
+	# Handle ROUND_END on client
+	if phase == "ROUND_END":
+		if GameManager.current_state != GameManager.GameState.ROUND_END:
+			GameManager.change_state(GameManager.GameState.ROUND_END)
+		return
 	if phase not in ["PLAYING", "KNOCKED"]:
 		return
 	var prev_turn: int = GameManager.current_player_index
@@ -112,6 +117,9 @@ func _apply_round_snapshot(snapshot: Dictionary) -> void:
 	tbl.drawn_card = null
 	tbl.is_drawing = false
 	tbl.is_player_turn = false
+	# Clean up any lingering ability state when the turn changes
+	if tbl.ability_manager.is_executing_ability:
+		tbl.ability_manager.reset_state()
 	if tbl.discard_pile_visual:
 		tbl.discard_pile_visual.set_interactive(false)
 	_log("Turn advanced to seat %d — starting next turn on client" % turn_seat)
@@ -315,3 +323,182 @@ func _do_client_discard(seat_idx: int) -> void:
 	var did_discard := await _round_controller.request_discard_drawn(seat_idx)
 	if not did_discard:
 		push_warning("SteamRoundService: discard request declined by round controller for seat %d" % seat_idx)
+
+# ---------------------------------------------------------------------------
+# Step 6: Ability RPCs
+# ---------------------------------------------------------------------------
+
+## Find the acting peer and tell them an ability is starting.
+func notify_client_ability_start(actor_seat_idx: int, ability_type_int: int) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	var rs := SteamRoomService.get_room_state()
+	for peer_id in multiplayer.get_peers():
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = rs.get_member(steam_id)
+		if member != null and member.seat_index == actor_seat_idx:
+			_client_begin_ability.rpc_id(peer_id, ability_type_int)
+			return
+
+@rpc("authority", "call_remote", "reliable")
+func _client_begin_ability(ability_type_int: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	_log("Ability started on client: %s" % CardData.AbilityType.keys()[ability_type_int])
+	match ability_type_int:
+		CardData.AbilityType.LOOK_OWN:
+			tbl.ability_manager.execute_ability_look_own()
+		CardData.AbilityType.LOOK_OPPONENT:
+			tbl.ability_manager.execute_ability_look_opponent()
+		CardData.AbilityType.BLIND_SWAP:
+			tbl.ability_manager.execute_ability_blind_swap()
+		CardData.AbilityType.LOOK_AND_SWAP:
+			tbl.ability_manager.execute_ability_look_and_swap()
+
+@rpc("any_peer", "reliable")
+func client_request_ability_select(target_seat: int, slot: int, is_penalty: bool) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_peer := multiplayer.get_remote_sender_id()
+	var actor_seat := _get_seat_index_for_sender()
+	if actor_seat < 0 or _round_controller == null:
+		return
+	if GameManager.current_player_index != actor_seat:
+		return
+	var tbl = _round_controller.table
+	var card: Card3D = null
+	if is_penalty:
+		if target_seat >= 0 and target_seat < tbl.player_grids.size():
+			var grid = tbl.player_grids[target_seat]
+			if slot >= 0 and slot < grid.penalty_cards.size():
+				card = grid.penalty_cards[slot]
+	else:
+		if target_seat >= 0 and target_seat < tbl.player_grids.size():
+			card = tbl.player_grids[target_seat].get_card_at(slot)
+	if card == null:
+		push_warning("SteamRoundService: ability_select — no card at seat=%d slot=%d penalty=%s" % [target_seat, slot, is_penalty])
+		return
+	var card_id: int = card.card_data.card_id
+	var ability := tbl.ability_manager.current_ability
+	await _round_controller.request_ability_select(actor_seat, card)
+	# After selection: reveal card privately for look abilities, or signal confirm-ready for swap abilities
+	match ability:
+		CardData.AbilityType.LOOK_OWN, CardData.AbilityType.LOOK_OPPONENT:
+			if tbl.ability_manager.awaiting_ability_confirmation:
+				_client_ability_reveal.rpc_id(sender_peer, target_seat, slot, is_penalty, card_id)
+		CardData.AbilityType.BLIND_SWAP, CardData.AbilityType.LOOK_AND_SWAP:
+			if tbl.ability_manager.awaiting_ability_confirmation:
+				_client_ability_await_confirm.rpc_id(sender_peer)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_ability_reveal(target_seat: int, slot: int, is_penalty: bool, card_id: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	var card: Card3D = null
+	if is_penalty:
+		if target_seat >= 0 and target_seat < tbl.player_grids.size():
+			var grid = tbl.player_grids[target_seat]
+			if slot >= 0 and slot < grid.penalty_cards.size():
+				card = grid.penalty_cards[slot]
+	else:
+		if target_seat >= 0 and target_seat < tbl.player_grids.size():
+			card = tbl.player_grids[target_seat].get_card_at(slot)
+	if card == null:
+		push_warning("SteamRoundService: _client_ability_reveal — no card at seat=%d slot=%d" % [target_seat, slot])
+		return
+	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
+	if card_data:
+		card.initialize(card_data, card.is_face_up)
+	tbl.ability_manager.ability_target_card = card
+	var view_pos: Vector3 = tbl.view_helper.get_card_view_position()
+	var view_rot: float = tbl.view_helper.get_card_view_rotation()
+	card.global_rotation = Vector3(0, view_rot, 0)
+	card.move_to(view_pos, 0.4, false)
+	await get_tree().create_timer(0.45).timeout
+	card.flip(true, 0.35)
+	await get_tree().create_timer(0.4).timeout
+	tbl.view_helper.tilt_card_towards_viewer(card, false)
+	await get_tree().create_timer(0.25).timeout
+	tbl.ability_manager.awaiting_ability_confirmation = true
+	tbl.turn_ui.update_action("Press SPACE to confirm")
+	_log("Revealed card to client: %s" % (card_data.get_short_name() if card_data else "unknown"))
+
+@rpc("authority", "call_remote", "reliable")
+func _client_ability_await_confirm() -> void:
+	if _round_controller == null:
+		return
+	_round_controller.table.ability_manager.awaiting_ability_confirmation = true
+	_round_controller.table.turn_ui.update_action("Press SPACE to confirm")
+
+@rpc("any_peer", "reliable")
+func client_request_ability_confirm() -> void:
+	if not multiplayer.is_server():
+		return
+	var actor_seat := _get_seat_index_for_sender()
+	if actor_seat < 0 or _round_controller == null:
+		return
+	if GameManager.current_player_index != actor_seat:
+		return
+	await _round_controller.request_ability_confirm(actor_seat)
+
+## Send both Queen-selected card IDs to the acting remote client for side-by-side display.
+func notify_client_queen_display(actor_seat_idx: int, c1_seat: int, c1_slot: int, c1_pen: int, c1_id: int, c2_seat: int, c2_slot: int, c2_pen: int, c2_id: int) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	var rs := SteamRoomService.get_room_state()
+	for peer_id in multiplayer.get_peers():
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = rs.get_member(steam_id)
+		if member != null and member.seat_index == actor_seat_idx:
+			_client_queen_display.rpc_id(peer_id, c1_seat, c1_slot, c1_pen, c1_id, c2_seat, c2_slot, c2_pen, c2_id)
+			return
+
+@rpc("authority", "call_remote", "reliable")
+func _client_queen_display(c1_seat: int, c1_slot: int, c1_pen: int, c1_id: int, c2_seat: int, c2_slot: int, c2_pen: int, c2_id: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	var ab = tbl.ability_manager
+	var card1: Card3D = null
+	var card2: Card3D = null
+	if c1_pen >= 0 and c1_seat < tbl.player_grids.size():
+		card1 = tbl.player_grids[c1_seat].penalty_cards[c1_pen] if c1_pen < tbl.player_grids[c1_seat].penalty_cards.size() else null
+	elif c1_slot >= 0 and c1_seat < tbl.player_grids.size():
+		card1 = tbl.player_grids[c1_seat].get_card_at(c1_slot)
+	if c2_pen >= 0 and c2_seat < tbl.player_grids.size():
+		card2 = tbl.player_grids[c2_seat].penalty_cards[c2_pen] if c2_pen < tbl.player_grids[c2_seat].penalty_cards.size() else null
+	elif c2_slot >= 0 and c2_seat < tbl.player_grids.size():
+		card2 = tbl.player_grids[c2_seat].get_card_at(c2_slot)
+	if card1 == null or card2 == null:
+		push_warning("SteamRoundService: _client_queen_display — could not find cards")
+		return
+	var cd1 = tbl.deck_manager.find_card_data_by_id(c1_id)
+	var cd2 = tbl.deck_manager.find_card_data_by_id(c2_id)
+	if cd1:
+		card1.initialize(cd1, card1.is_face_up)
+	if cd2:
+		card2.initialize(cd2, card2.is_face_up)
+	ab.look_and_swap_first_card = card1
+	ab.look_and_swap_second_card = card2
+	await ab.display_cards_for_choice()
+
+@rpc("any_peer", "reliable")
+func client_request_queen_choice(do_swap: bool) -> void:
+	if not multiplayer.is_server():
+		return
+	var actor_seat := _get_seat_index_for_sender()
+	if actor_seat < 0 or _round_controller == null:
+		return
+	if GameManager.current_player_index != actor_seat:
+		return
+	var tbl = _round_controller.table
+	if do_swap:
+		await tbl.ability_manager._on_swap_chosen()
+	else:
+		await tbl.ability_manager._on_no_swap_chosen()
