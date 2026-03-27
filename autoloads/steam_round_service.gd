@@ -7,6 +7,7 @@ extends Node
 
 var _round_controller: FelixRoundController = null
 var _pending_snapshots: Array[Dictionary] = []
+var _pending_deal_ids: Array[int] = []
 # Tracks a face-down card animating on behalf of a remote player (draw/discard/swap)
 var _opponent_held_card: Card3D = null
 
@@ -21,6 +22,7 @@ func bind_round_controller(rc: FelixRoundController) -> void:
 	_round_controller = rc
 	_log("Round controller bound")
 	_drain_pending_snapshots()
+	_drain_pending_deal()
 
 func release_round_controller() -> void:
 	_round_controller = null
@@ -33,6 +35,16 @@ func _drain_pending_snapshots() -> void:
 	for snapshot in _pending_snapshots:
 		_apply_round_snapshot(snapshot)
 	_pending_snapshots.clear()
+
+func _drain_pending_deal() -> void:
+	if _pending_deal_ids.is_empty():
+		return
+	_log("Draining buffered deal start (%d remaining IDs)" % _pending_deal_ids.size())
+	var ids := _pending_deal_ids.duplicate()
+	_pending_deal_ids.clear()
+	_round_controller.table.deck_manager.apply_sequence(ids)
+	if not multiplayer.is_server():
+		_round_controller.table.dealing_manager.deal_cards_to_all_players_client()
 
 # ---------------------------------------------------------------------------
 # RPC helpers
@@ -150,7 +162,8 @@ func broadcast_private_hand(peer_id: int, seat_index: int, hand_ids: Array[int])
 @rpc("authority", "call_local", "reliable")
 func _client_start_deal(remaining_ids: Array[int]) -> void:
 	if _round_controller == null:
-		push_warning("SteamRoundService: _client_start_deal — no round controller")
+		_log("_client_start_deal arrived before round controller — buffering")
+		_pending_deal_ids.assign(remaining_ids)
 		return
 	# Apply remaining draw pile sequence on all peers (host updates its own pile too)
 	_round_controller.table.deck_manager.apply_sequence(remaining_ids)

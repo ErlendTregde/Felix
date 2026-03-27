@@ -48,9 +48,6 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	"""
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
-	# In multiplayer, only lift cards for the local seat — remote peers manage their own
-	if multiplayer.has_multiplayer_peer() and not table.is_local_seat(player_idx):
-		return
 
 	var grid = table.player_grids[player_idx]
 	var bottom_positions = get_bottom_card_positions(player_idx)
@@ -60,10 +57,14 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	if not card1 or not card2:
 		return
 
-	print("Player %d picking up cards: %s, %s" % [
-		player_idx + 1,
-		card1.card_data.get_short_name(),
-		card2.card_data.get_short_name()])
+	var is_local: bool = table.is_local_seat(player_idx)
+	if is_local:
+		print("Player %d picking up cards: %s, %s" % [
+			player_idx + 1,
+			card1.card_data.get_short_name(),
+			card2.card_data.get_short_name()])
+	else:
+		print("Player %d lifting cards (face-down — opponent)" % (player_idx + 1))
 
 	# Save original grid positions NOW (before move_to overwrites base_position)
 	var orig_pos1 = grid.to_global(grid.card_positions[bottom_positions[0]])
@@ -86,19 +87,21 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
 
-	# Flip face-up so player can see card values
-	if not card1.is_face_up:
-		card1.flip(true, 0.3)
-	if not card2.is_face_up:
-		card2.flip(true, 0.3)
+	# Flip face-up only for the local seat — opponents see cards face-down
+	if is_local:
+		if not card1.is_face_up:
+			card1.flip(true, 0.3)
+		if not card2.is_face_up:
+			card2.flip(true, 0.3)
 	await get_tree().create_timer(0.35).timeout
 
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
 
-	var is_bot: bool = not table.is_local_seat(player_idx)
-	table.view_helper.tilt_card_towards_viewer(card1, is_bot)
-	table.view_helper.tilt_card_towards_viewer(card2, is_bot)
+	# Tilt toward viewer for local seat; tilt away (bot angle) for opponents
+	var is_opponent: bool = not is_local
+	table.view_helper.tilt_card_towards_viewer(card1, is_opponent)
+	table.view_helper.tilt_card_towards_viewer(card2, is_opponent)
 	await get_tree().create_timer(0.25).timeout
 
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
@@ -120,9 +123,11 @@ func return_bottom_cards_for_player(player_idx: int) -> void:
 	var orig_pos1: Vector3 = cards[2]
 	var orig_pos2: Vector3 = cards[3]
 
-	# Untilt
+	# Untilt and clear any highlight
 	card1.rotation.x = 0.0
 	card2.rotation.x = 0.0
+	card1.set_highlighted(false)
+	card2.set_highlighted(false)
 
 	# Flip face-down
 	if card1.is_face_up:
