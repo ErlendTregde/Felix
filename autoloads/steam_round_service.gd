@@ -208,7 +208,7 @@ func notify_client_draw(actor_seat_idx: int, card_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
 	# Find the peer_id for this seat
-	var rs := SteamRoomService.get_room_state()
+	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
 		if steam_id == 0:
@@ -340,7 +340,7 @@ func _do_client_discard(seat_idx: int) -> void:
 func notify_client_ability_start(actor_seat_idx: int, ability_type_int: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
-	var rs := SteamRoomService.get_room_state()
+	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
 		if steam_id == 0:
@@ -377,8 +377,13 @@ func client_request_ability_select(target_seat: int, slot: int, is_penalty: bool
 	if GameManager.current_player_index != actor_seat:
 		return
 	var tbl = _round_controller.table
-	# Ignore if already waiting for SPACE confirm (prevents double-reveal on rapid clicks)
-	if tbl.ability_manager.awaiting_ability_confirmation:
+	# Ignore if already waiting for SPACE confirm for single-target look abilities —
+	# prevents double-reveal on rapid clicks. Multi-step abilities (BLIND_SWAP, LOOK_AND_SWAP)
+	# set awaiting_ability_confirmation immediately on card 2, so they must pass through here
+	# to allow re-selection of the second card.
+	var _ability: CardData.AbilityType = tbl.ability_manager.current_ability
+	if tbl.ability_manager.awaiting_ability_confirmation and \
+			(_ability == CardData.AbilityType.LOOK_OWN or _ability == CardData.AbilityType.LOOK_OPPONENT):
 		return
 	var card: Card3D = null
 	if is_penalty:
@@ -460,7 +465,7 @@ func client_request_ability_confirm() -> void:
 func notify_client_queen_display(actor_seat_idx: int, c1_seat: int, c1_slot: int, c1_pen: int, c1_id: int, c2_seat: int, c2_slot: int, c2_pen: int, c2_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
-	var rs := SteamRoomService.get_room_state()
+	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
 		if steam_id == 0:
@@ -710,7 +715,7 @@ func client_request_knock() -> void:
 func broadcast_opponent_draw(acting_seat_idx: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
-	var rs := SteamRoomService.get_room_state()
+	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
 		if steam_id == 0:
@@ -748,7 +753,7 @@ func _client_opponent_drew(seat_idx: int) -> void:
 func broadcast_opponent_discard(acting_seat_idx: int, card_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
-	var rs := SteamRoomService.get_room_state()
+	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
 		if steam_id == 0:
@@ -794,7 +799,7 @@ func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
 func broadcast_opponent_swap(acting_seat_idx: int, slot: int, is_penalty: bool, discarded_card_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
-	var rs := SteamRoomService.get_room_state()
+	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
 		if steam_id == 0:

@@ -114,7 +114,7 @@ func request_start_round() -> void:
 	_log("Starting round — %d seated players" % room_state.get_seated_member_count())
 	room_state.round_active = true
 	_set_phase("IN_ROUND")
-	_set_status("Round entered. Full networked gameplay sync lands in Phase 3.")
+	_set_status("Round in progress...")
 	FelixNetworkSession.start_session_for_all()
 	_broadcast_room_snapshot()
 	_client_room_transition.rpc("IN_ROUND", status_message)
@@ -209,7 +209,8 @@ func _create_member_state(steam_id: int, member_info: Dictionary) -> RoomMemberS
 	_log("Creating member state: steam_id=%d  name='%s'" % [steam_id, String(member_info.get("steam_username", "?"))])
 	var participant_id := _next_participant_id
 	_next_participant_id += 1
-	var seat_index := _assign_first_free_seat()
+	# Lock seats during an active round — new joiners wait until the round ends.
+	var seat_index := -1 if room_state.round_active else _assign_first_free_seat()
 	_log("  → assigned seat_index=%d  participant_id=%d" % [seat_index, participant_id])
 	var is_local := steam_id == SteamPlatformService.get_local_steam_id()
 	var member_state = RoomMemberStateScript.new().configure(
@@ -402,9 +403,20 @@ func _on_lobby_joined(_lobby_id: int, _lobby_name: String) -> void:
 func _on_lobby_left(_lobby_id: int) -> void:
 	_reset_room_state()
 
-func _on_lobby_join_failed(_lobby_id: int, _response: int) -> void:
-	_emit_room_error("Failed to join the Steam lobby.")
-	AppFlow.open_launcher("Failed to join Steam room.")
+func _on_lobby_join_failed(_lobby_id: int, response: int) -> void:
+	var reason := _join_fail_reason(response)
+	_emit_room_error(reason)
+	AppFlow.open_launcher(reason)
+
+func _join_fail_reason(response: int) -> String:
+	match response:
+		2: return "Steam room no longer exists."
+		3: return "Not allowed to join that room."
+		4: return "Steam room is full."
+		5: return "Failed to join Steam room (Steam error)."
+		6: return "You are banned from that room."
+		7: return "Account not eligible to join."
+		_: return "Failed to join Steam room (code %d)." % response
 
 func _on_lobby_members_updated(_lobby_id: int, _members: Dictionary) -> void:
 	if is_local_host():
@@ -422,9 +434,26 @@ func _on_peer_registered(_peer_id: int, _steam_id: int) -> void:
 	if is_local_host():
 		_rebuild_host_room_state()
 
-func _on_player_left(_peer_id: int, _steam_id: int) -> void:
-	if is_local_host():
+func _on_player_left(_peer_id: int, steam_id: int) -> void:
+	if not is_local_host():
+		return
+	if room_state.round_active:
+		var member = room_state.members_by_steam_id.get(steam_id, null)
+		var player_name: String = member.display_name if member != null else "A player"
+		_abort_round_for_disconnect(steam_id, player_name)
+	else:
 		_rebuild_host_room_state()
+
+func _abort_round_for_disconnect(leaving_steam_id: int, player_name: String) -> void:
+	_log("Round aborted — %s (steam_id=%d) disconnected mid-round" % [player_name, leaving_steam_id])
+	room_state.round_active = false
+	room_state.clear_ready_states()
+	_remove_member(leaving_steam_id)
+	_set_phase("WAITING")
+	var msg := "%s disconnected. Round cancelled." % player_name
+	_set_status(msg)
+	_broadcast_room_snapshot()
+	_client_room_transition.rpc("WAITING", msg)
 
 func _on_host_disconnected() -> void:
 	_reset_room_state()

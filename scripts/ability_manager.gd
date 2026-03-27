@@ -194,12 +194,14 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 		blind_swap_second_card = card
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
+		# Set confirmation flag immediately so SPACE works even if pressed before the animation
+		# completes — Godot processes _input before timer callbacks on the same frame.
+		table.turn_ui.update_action("Press SPACE to swap cards")
+		awaiting_ability_confirmation = true
 		await get_tree().create_timer(0.16).timeout
 		if blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			table.turn_ui.update_action("Press SPACE to swap cards")
-			awaiting_ability_confirmation = true
 		return
 
 	# Clicking the already-selected second card - ignore
@@ -302,12 +304,14 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		_queen_store_card_slot(card, false)
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
+		# Set confirmation flag immediately so SPACE works even if pressed before the animation
+		# completes — Godot processes _input before timer callbacks on the same frame.
+		table.turn_ui.update_action("Press SPACE to view cards")
+		awaiting_ability_confirmation = true
 		await get_tree().create_timer(0.16).timeout
 		if look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			table.turn_ui.update_action("Press SPACE to view cards")
-			awaiting_ability_confirmation = true
 		return
 
 	# Clicking the already-selected second card - ignore
@@ -324,11 +328,12 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		_queen_store_card_slot(card, false)
 		card.set_highlighted(true, true)
 		card.elevate(0.2, 0.15)
+		table.turn_ui.update_action("Press SPACE to view cards")
+		awaiting_ability_confirmation = true
 		await get_tree().create_timer(0.16).timeout
 		if look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
 			card.is_elevation_locked = true
 			print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			table.turn_ui.update_action("Press SPACE to view cards")
 
 func _queen_store_card_slot(card: Card3D, is_first: bool) -> void:
 	"""Capture the grid reference and slot index for a Queen-selected card at the moment

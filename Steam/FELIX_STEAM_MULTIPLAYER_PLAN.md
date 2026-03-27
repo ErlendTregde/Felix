@@ -24,8 +24,8 @@
 - Phase 2: Add the Steam room flow. Main menu branches to `Play vs AI` or `Steam Multiplayer`; host creates a friends/invite lobby; players join, are auto-seated in the existing seat index order `south=0`, `north=1`, `west=2`, `east=3`, see the room from their real seat, and mark ready. Only seated players count toward round start, and the host starts once all seated players are ready.
 - Phase 2: Keep the room alive between rounds. At round end, return to room state, keep session scores for current room members, allow players to ready for another round, and let the host start the next round. If someone leaves between rounds, the room continues with the remaining 2-4 players.
 - Phase 3: Implement the full networked Felix ruleset on top of the host model: initial viewing, draw/swap, discard-for-ability, all four abilities, fast matching, penalty cards, knock/final round, round-end reveal, winner calculation, and session score carryover.
-- Phase 3: Reject invalid or stale actions on the host. Out-of-turn clicks, duplicate requests, stale card references, and mismatched seat ownership should never mutate state.
-- Phase 4: Hardening and UX polish. Add Steam unavailable handling, invite/join failure messaging, lobby/full/started-state messaging, clean disconnect handling, and deterministic recovery back to the room.
+- Phase 3: Reject invalid or stale actions on the host. Out-of-turn clicks, duplicate requests, stale card references, and mismatched seat ownership should never mutate state. ✅ Done
+- Phase 4: Hardening and UX polish. Add Steam unavailable handling, invite/join failure messaging, lobby/full/started-state messaging, clean disconnect handling, and deterministic recovery back to the room. ✅ Done
 - Post-v1 roadmap: add standing/walking room avatars and seat enter/leave in the same room scene; then add lobby text chat, in-room chat/proximity voice, and later rejoin/late-join once the room/session snapshot model is stable.
 
 ## Test Plan
@@ -147,3 +147,12 @@ Host broadcasts the post-shuffle draw-pile order as `Array[int]` of `card_id`s. 
 | `scripts/knock_manager.gd` | Route knock button to RPC on clients — Step 8 |
 | `scripts/ability_manager.gd` | Route ability inputs to RPCs on clients — Step 6 |
 | `scripts/match_manager.gd` | Route right-click to RPC on clients — Step 7 |
+
+## Phase 4 Implementation Notes
+
+All Phase 4 hardening lives in `autoloads/steam_room_service.gd`.
+
+- **Join failure messages**: `_on_lobby_join_failed` now calls `_join_fail_reason(response)` to convert Steam's integer response code into a human-readable string (full, doesn't exist, banned, etc.) shown both in the room error and in the launcher status bar.
+- **Mid-round disconnect recovery**: `_on_player_left` detects `room_state.round_active`. If a player drops during a round, `_abort_round_for_disconnect` captures their display name, removes them from room state, resets the phase to `WAITING`, clears ready states, broadcasts a fresh room snapshot, and RPCs all remaining peers back to the steam room with a `"Player X disconnected. Round cancelled."` message.
+- **Mid-round seat lock**: `_create_member_state` assigns `seat_index = -1` when `room_state.round_active`. A friend who accepts an invite mid-round joins as an unseated observer and is auto-seated by the next `_rebuild_host_room_state` call (triggered by `ensure_room_flow_started` when the host returns to the steam room after the round ends).
+- **Status text cleanup**: `request_start_round` now sets `"Round in progress..."` instead of the stale Phase 3 placeholder.
