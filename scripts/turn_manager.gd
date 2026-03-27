@@ -273,27 +273,35 @@ func play_card_to_discard(card: Card3D) -> void:
 		table.discard_pile_visual.set_count(table.deck_manager.discard_pile.size())
 		table.discard_pile_visual.set_top_card(card.card_data)
 	
-	# Capture ability before queue_free
+	# Capture ability and card_id before queue_free
 	var ability = card.card_data.get_ability()
+	var card_id_for_broadcast: int = card.card_data.card_id
 
 	# Clean up the card
 	card.queue_free()
 	table.drawn_card = null
 
-	# Notify the acting remote client that an ability is starting (multiplayer host only)
-	if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and ability != CardData.AbilityType.NONE:
+	# In multiplayer: sync discard state and broadcast the visual to clients BEFORE
+	# the ability starts. Previously this happened after the whole ability, causing a
+	# multi-second delay before clients saw the discard card.
+	var skip_ability_visuals := false
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		var actor_seat := GameManager.current_player_index
-		if table.round_controller.is_remote_human_seat(actor_seat):
-			SteamRoundService.notify_client_ability_start(actor_seat, ability as int)
+		table.round_controller.sync_runtime_state()
+		SteamRoundService.broadcast_opponent_discard(actor_seat, card_id_for_broadcast)
+		if ability != CardData.AbilityType.NONE:
+			if table.round_controller.is_remote_human_seat(actor_seat):
+				SteamRoundService.notify_client_ability_start(actor_seat, ability as int)
+				skip_ability_visuals = true  # Remote actor: no local highlights
 
 	if ability == CardData.AbilityType.LOOK_OWN:  # 7 or 8
-		await table.ability_manager.execute_ability_look_own()
+		await table.ability_manager.execute_ability_look_own(skip_ability_visuals)
 	elif ability == CardData.AbilityType.LOOK_OPPONENT:  # 9 or 10
-		await table.ability_manager.execute_ability_look_opponent()
+		await table.ability_manager.execute_ability_look_opponent(skip_ability_visuals)
 	elif ability == CardData.AbilityType.BLIND_SWAP:  # Jack
-		await table.ability_manager.execute_ability_blind_swap()
+		await table.ability_manager.execute_ability_blind_swap(skip_ability_visuals)
 	elif ability == CardData.AbilityType.LOOK_AND_SWAP:  # Queen
-		await table.ability_manager.execute_ability_look_and_swap()
+		await table.ability_manager.execute_ability_look_and_swap(skip_ability_visuals)
 	else:
 		print("No ability on this card")
 		end_current_turn()

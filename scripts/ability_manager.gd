@@ -85,6 +85,14 @@ func handle_ability_target_selection(card: Card3D, skip_visuals: bool = false) -
 	card.is_interactable = false  # Prevent re-clicking the selected card
 	awaiting_ability_confirmation = true
 
+	# When the host is the acting player in multiplayer, broadcast observer animation to clients
+	if not skip_visuals and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var slot_info: Dictionary = table._get_card_slot_info(card)
+		if slot_info.slot >= 0:
+			SteamRoundService.broadcast_ability_observer_lift_from_host(
+				GameManager.current_player_index, card.owner_seat_id,
+				slot_info.slot, slot_info.is_penalty)
+
 	if skip_visuals:
 		return  # Host processing remote action: no animations, no UI changes
 
@@ -563,7 +571,18 @@ func confirm_blind_swap() -> void:
 	# Compute the world-space target each card will move to (= where the OTHER card currently is)
 	var card1_target := _grid_slot_global_pos(card2_grid, card2_main_slot, card2_penalty_slot)
 	var card2_target := _grid_slot_global_pos(card1_grid, card1_main_slot, card1_penalty_slot)
-	
+
+	# Broadcast swap animation to all clients so observers see the cards cross
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamRoundService.broadcast_blind_swap_observer(
+			card1_grid.owner_seat_id,
+			card1_main_slot if card1_main_slot >= 0 else card1_penalty_slot,
+			card1_main_slot < 0,
+			card2_grid.owner_seat_id,
+			card2_main_slot if card2_main_slot >= 0 else card2_penalty_slot,
+			card2_main_slot < 0
+		)
+
 	# --- Update data structures (swap entries in their respective arrays) ---
 	if card1_main_slot != -1:
 		card1_grid.cards[card1_main_slot] = card2
@@ -768,15 +787,16 @@ func confirm_ability_viewing() -> void:
 	# End turn
 	table.turn_manager.end_current_turn()
 
-func execute_ability_look_own() -> void:
-	"""Execute 7/8 ability: Look at one of your own cards"""
+func execute_ability_look_own(skip_visuals: bool = false) -> void:
+	"""Execute 7/8 ability: Look at one of your own cards.
+	skip_visuals=true when host runs this for a remote client's action."""
 	print("\n=== Ability: Look at Own Card ===")
-	table.turn_ui.update_action("Select which card to look at")
-	
 	is_executing_ability = true
 	current_ability = CardData.AbilityType.LOOK_OWN
+	if skip_visuals:
+		return  # Remote actor: client handles its own UI via _client_begin_ability
+	table.turn_ui.update_action("Select which card to look at")
 	var grid = table.player_grids[GameManager.current_player_index]
-	
 	# Highlight own cards + penalty cards (cyan = selectable)
 	for i in range(4):
 		var card = grid.get_card_at(i)
@@ -786,20 +806,17 @@ func execute_ability_look_own() -> void:
 	for card in grid.penalty_cards:
 		card.set_highlighted(true)
 		card.is_interactable = true
-	
-	# Wait for player to select a card (handled in handle_ability_target_selection)
 	# The flow continues in confirm_ability_viewing() when SPACE is pressed
 
-func execute_ability_look_opponent() -> void:
-	"""Execute 9/10 ability: Look at one of opponent's cards"""
+func execute_ability_look_opponent(skip_visuals: bool = false) -> void:
+	"""Execute 9/10 ability: Look at one of opponent's cards.
+	skip_visuals=true when host runs this for a remote client's action."""
 	print("\n=== Ability: Look at Opponent's Card ===")
-	
 	is_executing_ability = true
 	current_ability = CardData.AbilityType.LOOK_OPPONENT
-	
+	if skip_visuals:
+		return  # Remote actor: client handles its own UI via _client_begin_ability
 	table.turn_ui.update_action("Select opponent's card to look at")
-	
-	# Highlight only NEIGHBOR cards + penalty cards (cyan = targetable)
 	var current_player = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player)
 	for neighbor_idx in neighbors:
@@ -814,22 +831,19 @@ func execute_ability_look_opponent() -> void:
 		for card in opponent_grid.penalty_cards:
 			card.set_highlighted(true)
 			card.is_interactable = true
-
-	# Wait for player to select a card (handled in handle_ability_target_selection)
 	# The flow continues in confirm_ability_viewing() when SPACE is pressed
 
-func execute_ability_blind_swap() -> void:
-	"""Execute Jack ability: Blind swap with neighbor"""
+func execute_ability_blind_swap(skip_visuals: bool = false) -> void:
+	"""Execute Jack ability: Blind swap with neighbor.
+	skip_visuals=true when host runs this for a remote client's action."""
 	print("\n=== Ability: Blind Swap ===")
-	table.turn_ui.update_action("Select YOUR card to swap")
-	
 	is_executing_ability = true
 	current_ability = CardData.AbilityType.BLIND_SWAP
-	
+	if skip_visuals:
+		return  # Remote actor: client handles its own UI via _client_begin_ability
+	table.turn_ui.update_action("Select YOUR card to swap")
 	var current_player_idx = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player_idx)
-	
-	# Highlight own cards + penalty cards (cyan = your cards to swap)
 	var own_grid = table.get_player_grid(current_player_idx)
 	if own_grid:
 		for i in range(4):
@@ -840,8 +854,6 @@ func execute_ability_blind_swap() -> void:
 		for card in own_grid.penalty_cards:
 			card.set_highlighted(true)
 			card.is_interactable = true
-
-	# Highlight neighbor cards + penalty cards (cyan = neighbor cards to swap with)
 	for neighbor_idx in neighbors:
 		var neighbor_grid = table.get_player_grid(neighbor_idx)
 		if not neighbor_grid:
@@ -855,17 +867,17 @@ func execute_ability_blind_swap() -> void:
 			card.set_highlighted(true)
 			card.is_interactable = true
 
-func execute_ability_look_and_swap() -> void:
-	"""Execute Queen ability: Look at own card and neighbor card, then choose to swap"""
+func execute_ability_look_and_swap(skip_visuals: bool = false) -> void:
+	"""Execute Queen ability: Look at own card and neighbor card, then choose to swap.
+	skip_visuals=true when host runs this for a remote client's action."""
 	print("\n=== Ability: Look and Swap ===")
-	table.turn_ui.update_action("Select YOUR card to look at")
-	
 	is_executing_ability = true
 	current_ability = CardData.AbilityType.LOOK_AND_SWAP
-	
+	if skip_visuals:
+		return  # Remote actor: client handles its own UI via _client_begin_ability
+	table.turn_ui.update_action("Select YOUR card to look at")
 	var current_player_idx = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player_idx)
-	
 	# Highlight own cards + penalty cards (cyan = your card to view)
 	var own_grid = table.get_player_grid(current_player_idx)
 	if own_grid:
@@ -895,13 +907,26 @@ func execute_ability_look_and_swap() -> void:
 func _on_swap_chosen() -> void:
 	"""Called when player chooses to swap cards in Queen ability."""
 	print("\n=== Swapping Cards ===")
-	
+
 	# Remove card labels and restore turn UI
 	_queen_remove_labels()
 	table.turn_ui.show_ui()
-	
+
 	var card1 = look_and_swap_first_card
 	var card2 = look_and_swap_second_card
+
+	# Broadcast Queen observer animation to all clients
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamRoundService.broadcast_queen_observer(
+			GameManager.current_player_index,
+			card1.owner_seat_id,
+			look_and_swap_first_slot if look_and_swap_first_slot >= 0 else look_and_swap_first_penalty_slot,
+			look_and_swap_first_slot < 0,
+			card2.owner_seat_id,
+			look_and_swap_second_slot if look_and_swap_second_slot >= 0 else look_and_swap_second_penalty_slot,
+			look_and_swap_second_slot < 0,
+			true
+		)
 	
 	# Use the grid/slot references captured at selection time — avoids a re-search
 	# failure if cards have since been moved to the viewing position.
@@ -986,11 +1011,11 @@ func _on_swap_chosen() -> void:
 func _on_no_swap_chosen() -> void:
 	"""Called when player chooses NOT to swap cards in Queen ability"""
 	print("\n=== Not Swapping - Returning Cards ===")
-	
+
 	# Remove card labels and restore turn UI
 	_queen_remove_labels()
 	table.turn_ui.show_ui()
-	
+
 	var card1 = look_and_swap_first_card
 	var card2 = look_and_swap_second_card
 	var grid1 = look_and_swap_first_grid
@@ -999,6 +1024,19 @@ func _on_no_swap_chosen() -> void:
 	var grid2 = look_and_swap_second_grid
 	var slot2 = look_and_swap_second_slot
 	var pen2 = look_and_swap_second_penalty_slot
+
+	# Broadcast Queen observer animation to all clients
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamRoundService.broadcast_queen_observer(
+			GameManager.current_player_index,
+			card1.owner_seat_id,
+			slot1 if slot1 >= 0 else pen1,
+			slot1 < 0,
+			card2.owner_seat_id,
+			slot2 if slot2 >= 0 else pen2,
+			slot2 < 0,
+			false
+		)
 	
 	# Flip cards back face-down first
 	if card1.is_face_up:

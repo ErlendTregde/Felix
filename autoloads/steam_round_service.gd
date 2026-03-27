@@ -494,6 +494,8 @@ func client_request_ability_select(target_seat: int, slot: int, is_penalty: bool
 		CardData.AbilityType.LOOK_OWN, CardData.AbilityType.LOOK_OPPONENT:
 			if tbl.ability_manager.awaiting_ability_confirmation:
 				_client_ability_reveal.rpc_id(sender_peer, target_seat, slot, is_penalty, card_id)
+				# Show all OBSERVERS (host + other clients) the card being viewed face-down
+				_broadcast_ability_observer_lift(actor_seat, target_seat, slot, is_penalty, sender_peer)
 		CardData.AbilityType.BLIND_SWAP, CardData.AbilityType.LOOK_AND_SWAP:
 			if tbl.ability_manager.awaiting_ability_confirmation:
 				_client_ability_await_confirm.rpc_id(sender_peer)
@@ -515,6 +517,16 @@ func _client_ability_reveal(target_seat: int, slot: int, is_penalty: bool, card_
 	if card == null:
 		push_warning("SteamRoundService: _client_ability_reveal — no card at seat=%d slot=%d" % [target_seat, slot])
 		return
+	# Clear all ability highlights from execute_ability_look_own/opponent (cyan glow)
+	for g: PlayerGrid in tbl.player_grids:
+		for i in range(4):
+			var c: Card3D = g.get_card_at(i)
+			if c:
+				c.set_highlighted(false)
+				c.is_interactable = false
+		for c: Card3D in g.penalty_cards:
+			c.set_highlighted(false)
+			c.is_interactable = false
 	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
 	if card_data:
 		card.initialize(card_data, card.is_face_up)
@@ -538,6 +550,314 @@ func _client_ability_await_confirm() -> void:
 		return
 	_round_controller.table.ability_manager.awaiting_ability_confirmation = true
 	_round_controller.table.turn_ui.update_action("Press SPACE to confirm")
+
+## Send all non-actor peers (and run on host) the face-down card-lift observer animation.
+## Called when a remote client selects a card for look_own / look_opponent.
+func _broadcast_ability_observer_lift(actor_seat: int, card_seat: int, slot: int, is_penalty: bool, actor_peer_id: int) -> void:
+	# Run on host locally (host is an observer)
+	_play_ability_observer_lift_local(actor_seat, card_seat, slot, is_penalty)
+	# Send to other non-actor clients
+	var rs: RoomState = SteamRoomService.get_room_state()
+	for peer_id in multiplayer.get_peers():
+		if peer_id == actor_peer_id:
+			continue
+		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
+		if steam_id == 0:
+			continue
+		var member = rs.get_member(steam_id)
+		if member == null or member.seat_index == actor_seat:
+			continue
+		_client_ability_observer_lift.rpc_id(peer_id, actor_seat, card_seat, slot, is_penalty)
+
+## Called by the host to show all clients an observer animation when the local host
+## looks at a card (look_own / look_opponent ability, host as actor).
+func broadcast_ability_observer_lift_from_host(actor_seat: int, card_seat: int, slot: int, is_penalty: bool) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	_client_ability_observer_lift.rpc(actor_seat, card_seat, slot, is_penalty)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_ability_observer_lift(actor_seat: int, card_seat: int, slot: int, is_penalty: bool) -> void:
+	if _round_controller == null:
+		return
+	_play_ability_observer_lift_local(actor_seat, card_seat, slot, is_penalty)
+
+## Plays a face-down card-lift observer animation locally: the card moves to the actor's
+## view position (face-down) so observers see someone looking at a card.
+func _play_ability_observer_lift_local(actor_seat: int, card_seat: int, slot: int, is_penalty: bool) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if actor_seat < 0 or actor_seat >= tbl.player_grids.size():
+		return
+	var card: Card3D = null
+	if is_penalty:
+		if card_seat >= 0 and card_seat < tbl.player_grids.size():
+			var g = tbl.player_grids[card_seat]
+			if slot >= 0 and slot < g.penalty_cards.size():
+				card = g.penalty_cards[slot]
+	else:
+		if card_seat >= 0 and card_seat < tbl.player_grids.size():
+			card = tbl.player_grids[card_seat].get_card_at(slot)
+	if card == null:
+		return
+	# Clear ability highlights visible to this observer
+	for g: PlayerGrid in tbl.player_grids:
+		for i in range(4):
+			var c: Card3D = g.get_card_at(i)
+			if c:
+				c.set_highlighted(false)
+		for c: Card3D in g.penalty_cards:
+			c.set_highlighted(false)
+	# Animate face-down card to the actor's view position so observer sees "someone is looking"
+	var view_pos: Vector3 = tbl.view_helper.get_card_view_position_for(actor_seat)
+	var view_rot: float = tbl.view_helper.get_card_view_rotation_for(actor_seat)
+	var orig_rot: Vector3 = card.global_rotation
+	card.global_rotation = Vector3(0, view_rot, 0)
+	card.move_to(view_pos, 0.4, false)
+	# After viewing delay, return card to grid (face-down, no flip)
+	_return_observer_card_after_delay(card, orig_rot, tbl)
+
+func _return_observer_card_after_delay(card: Card3D, orig_rot: Vector3, tbl) -> void:
+	await get_tree().create_timer(1.8).timeout
+	if not is_instance_valid(card):
+		return
+	# Find where this card belongs now
+	for grid: PlayerGrid in tbl.player_grids:
+		for i in range(4):
+			if grid.get_card_at(i) == card:
+				var target: Vector3 = grid.to_global(grid.card_positions[i])
+				card.global_rotation = orig_rot
+				card.move_to(target, 0.4, false)
+				return
+		for i in range(grid.penalty_cards.size()):
+			if grid.penalty_cards[i] == card:
+				var target: Vector3 = grid.to_global(grid.penalty_positions[i])
+				card.global_rotation = orig_rot
+				card.move_to(target, 0.4, false)
+				return
+
+## Broadcast the blind-swap crossing animation to all client observers.
+func broadcast_blind_swap_observer(c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	_client_blind_swap_observer.rpc(c1_seat, c1_slot, c1_pen, c2_seat, c2_slot, c2_pen)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_blind_swap_observer(c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool) -> void:
+	if _round_controller == null:
+		return
+	_play_blind_swap_observer_local(c1_seat, c1_slot, c1_pen, c2_seat, c2_slot, c2_pen)
+
+func _play_blind_swap_observer_local(c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool) -> void:
+	var tbl = _round_controller.table
+	var card1: Card3D = _find_grid_card(tbl, c1_seat, c1_slot, c1_pen)
+	var card2: Card3D = _find_grid_card(tbl, c2_seat, c2_slot, c2_pen)
+	if card1 == null or card2 == null:
+		return
+	var card1_grid: PlayerGrid = tbl.player_grids[c1_seat]
+	var card2_grid: PlayerGrid = tbl.player_grids[c2_seat]
+	# Target = each card's final grid slot (where the other card is now)
+	var card1_target: Vector3 = _grid_slot_world_pos(tbl, c2_seat, c2_slot, c2_pen)
+	var card2_target: Vector3 = _grid_slot_world_pos(tbl, c1_seat, c1_slot, c1_pen)
+	# Clear any existing highlights so selection state is clean
+	for g: PlayerGrid in tbl.player_grids:
+		for i in range(4):
+			var c = g.get_card_at(i)
+			if c:
+				c.set_highlighted(false)
+		for c in g.penalty_cards:
+			c.set_highlighted(false)
+	# Highlight + elevate so observer can see which cards are swapping
+	card1.set_highlighted(true)
+	card2.set_highlighted(true)
+	card1.elevate(0.2, 0.15)
+	card2.elevate(0.2, 0.15)
+	card1.is_elevation_locked = true
+	card2.is_elevation_locked = true
+	await get_tree().create_timer(0.5).timeout
+	# Cross-animate: each card flies to the other's grid slot
+	card1.is_elevation_locked = false
+	card2.is_elevation_locked = false
+	card1.move_to(card1_target, 0.4, false)
+	card2.move_to(card2_target, 0.4, false)
+	await get_tree().create_timer(0.45).timeout
+	# Lower
+	card1.lower(0.2)
+	card2.lower(0.2)
+	await get_tree().create_timer(0.25).timeout
+	# Update grid arrays so logical state matches visual
+	if c1_pen:
+		card1_grid.penalty_cards[c1_slot] = card2
+	else:
+		card1_grid.cards[c1_slot] = card2
+	if c2_pen:
+		card2_grid.penalty_cards[c2_slot] = card1
+	else:
+		card2_grid.cards[c2_slot] = card1
+	# Update owner references
+	var tmp_owner = card1.owner_player
+	card1.owner_player = card2.owner_player
+	card2.owner_player = tmp_owner
+	var tmp_seat = card1.owner_seat_id
+	card1.owner_seat_id = card2.owner_seat_id
+	card2.owner_seat_id = tmp_seat
+	# Reparent to new grids so rotation is inherited correctly
+	if card1.get_parent() != card2_grid:
+		card1.get_parent().remove_child(card1)
+		card2_grid.add_child(card1)
+	card1.rotation = Vector3.ZERO
+	card1.position = _grid_slot_local_pos(card2_grid, c2_slot, c2_pen)
+	card1.base_position = card1_target
+	if card2.get_parent() != card1_grid:
+		card2.get_parent().remove_child(card2)
+		card1_grid.add_child(card2)
+	card2.rotation = Vector3.ZERO
+	card2.position = _grid_slot_local_pos(card1_grid, c1_slot, c1_pen)
+	card2.base_position = card2_target
+	# Unhighlight
+	card1.set_highlighted(false)
+	card2.set_highlighted(false)
+
+## Broadcast the Queen (look-and-swap) observer animation: two cards lift, view, then swap or return.
+func broadcast_queen_observer(actor_seat: int, c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool, did_swap: bool) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	_client_queen_observer.rpc(actor_seat, c1_seat, c1_slot, c1_pen, c2_seat, c2_slot, c2_pen, did_swap)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_queen_observer(actor_seat: int, c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool, did_swap: bool) -> void:
+	if _round_controller == null:
+		return
+	_play_queen_observer_local(actor_seat, c1_seat, c1_slot, c1_pen, c2_seat, c2_slot, c2_pen, did_swap)
+
+func _play_queen_observer_local(actor_seat: int, c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool, did_swap: bool) -> void:
+	var tbl = _round_controller.table
+	var card1: Card3D = _find_grid_card(tbl, c1_seat, c1_slot, c1_pen)
+	var card2: Card3D = _find_grid_card(tbl, c2_seat, c2_slot, c2_pen)
+	if card1 == null or card2 == null:
+		return
+	var card1_grid: PlayerGrid = tbl.player_grids[c1_seat]
+	var card2_grid: PlayerGrid = tbl.player_grids[c2_seat]
+	var orig1: Vector3 = _grid_slot_world_pos(tbl, c1_seat, c1_slot, c1_pen)
+	var orig2: Vector3 = _grid_slot_world_pos(tbl, c2_seat, c2_slot, c2_pen)
+	# Final positions depend on whether a swap happened
+	var final1: Vector3 = orig2 if did_swap else orig1
+	var final2: Vector3 = orig1 if did_swap else orig2
+	# Clear highlights
+	for g: PlayerGrid in tbl.player_grids:
+		for i in range(4):
+			var c = g.get_card_at(i)
+			if c:
+				c.set_highlighted(false)
+		for c in g.penalty_cards:
+			c.set_highlighted(false)
+	# Highlight + elevate
+	card1.set_highlighted(true)
+	card2.set_highlighted(true)
+	card1.elevate(0.2, 0.15)
+	card2.elevate(0.2, 0.15)
+	card1.is_elevation_locked = true
+	card2.is_elevation_locked = true
+	await get_tree().create_timer(0.5).timeout
+	# Rotate to face actor and move to side-by-side view positions
+	var view_center: Vector3 = tbl.view_helper.get_card_view_position_for(actor_seat)
+	var sideways: Vector3 = tbl.view_helper.get_card_view_sideways_for(actor_seat)
+	var view_rot: float = tbl.view_helper.get_card_view_rotation_for(actor_seat)
+	card1.global_rotation = Vector3(0, view_rot, 0)
+	card2.global_rotation = Vector3(0, view_rot, 0)
+	card1.is_elevation_locked = false
+	card2.is_elevation_locked = false
+	card1.move_to(view_center - sideways * 1.0, 0.4, false)
+	card2.move_to(view_center + sideways * 1.0, 0.4, false)
+	await get_tree().create_timer(0.45).timeout
+	# Tilt away (observer sees back of card — actor is "looking" privately)
+	tbl.view_helper.tilt_card_towards_viewer(card1, true)
+	tbl.view_helper.tilt_card_towards_viewer(card2, true)
+	# Hold to show viewing in progress
+	await get_tree().create_timer(1.2).timeout
+	# Reset tilt + rotation before returning
+	card1.rotation = Vector3.ZERO
+	card2.rotation = Vector3.ZERO
+	await get_tree().create_timer(0.15).timeout
+	# Animate to final positions
+	card1.move_to(final1, 0.4, false)
+	card2.move_to(final2, 0.4, false)
+	await get_tree().create_timer(0.45).timeout
+	# Update grid arrays + owner refs + reparent
+	if did_swap:
+		if c1_pen:
+			card1_grid.penalty_cards[c1_slot] = card2
+		else:
+			card1_grid.cards[c1_slot] = card2
+		if c2_pen:
+			card2_grid.penalty_cards[c2_slot] = card1
+		else:
+			card2_grid.cards[c2_slot] = card1
+		var tmp_owner = card1.owner_player
+		card1.owner_player = card2.owner_player
+		card2.owner_player = tmp_owner
+		var tmp_seat = card1.owner_seat_id
+		card1.owner_seat_id = card2.owner_seat_id
+		card2.owner_seat_id = tmp_seat
+		if card1.get_parent() != card2_grid:
+			card1.get_parent().remove_child(card1)
+			card2_grid.add_child(card1)
+		card1.rotation = Vector3.ZERO
+		card1.position = _grid_slot_local_pos(card2_grid, c2_slot, c2_pen)
+		card1.base_position = final1
+		if card2.get_parent() != card1_grid:
+			card2.get_parent().remove_child(card2)
+			card1_grid.add_child(card2)
+		card2.rotation = Vector3.ZERO
+		card2.position = _grid_slot_local_pos(card1_grid, c1_slot, c1_pen)
+		card2.base_position = final2
+	else:
+		# No swap — cards return to original grids
+		if card1.get_parent() != card1_grid:
+			card1.get_parent().remove_child(card1)
+			card1_grid.add_child(card1)
+		card1.rotation = Vector3.ZERO
+		card1.position = _grid_slot_local_pos(card1_grid, c1_slot, c1_pen)
+		card1.base_position = orig1
+		if card2.get_parent() != card2_grid:
+			card2.get_parent().remove_child(card2)
+			card2_grid.add_child(card2)
+		card2.rotation = Vector3.ZERO
+		card2.position = _grid_slot_local_pos(card2_grid, c2_slot, c2_pen)
+		card2.base_position = orig2
+	# Lower + unhighlight
+	card1.lower(0.2)
+	card2.lower(0.2)
+	card1.set_highlighted(false)
+	card2.set_highlighted(false)
+
+## Helper: find a card in a grid by seat/slot/penalty
+func _find_grid_card(tbl, seat: int, slot: int, is_penalty: bool) -> Card3D:
+	if seat < 0 or seat >= tbl.player_grids.size():
+		return null
+	var grid: PlayerGrid = tbl.player_grids[seat]
+	if is_penalty:
+		if slot >= 0 and slot < grid.penalty_cards.size():
+			return grid.penalty_cards[slot]
+	else:
+		return grid.get_card_at(slot)
+	return null
+
+## Helper: get world-space position of a grid slot
+func _grid_slot_world_pos(tbl, seat: int, slot: int, is_penalty: bool) -> Vector3:
+	var grid: PlayerGrid = tbl.player_grids[seat]
+	if is_penalty:
+		var ps: int = mini(slot, grid.penalty_positions.size() - 1)
+		return grid.to_global(grid.penalty_positions[ps])
+	return grid.to_global(grid.card_positions[slot])
+
+## Helper: get local-space position of a grid slot
+func _grid_slot_local_pos(grid: PlayerGrid, slot: int, is_penalty: bool) -> Vector3:
+	if is_penalty:
+		var ps: int = mini(slot, grid.penalty_positions.size() - 1)
+		return grid.penalty_positions[ps]
+	return grid.card_positions[slot]
 
 @rpc("any_peer", "reliable")
 func client_request_ability_confirm() -> void:

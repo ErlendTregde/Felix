@@ -107,13 +107,10 @@ func request_discard_drawn(actor_seat_id: int) -> bool:
 	if not table.drawn_card:
 		print("Draw a card first! Press D")
 		return false
-	# Capture drawn card id before await (card gets freed during play_card_to_discard)
-	var mp_server := multiplayer.has_multiplayer_peer() and multiplayer.is_server()
-	var discarded_id: int = table.drawn_card.card_data.card_id if mp_server and table.drawn_card.card_data else -1
+	# sync_runtime_state + broadcast_opponent_discard are now called inside
+	# play_card_to_discard BEFORE the ability starts, so clients see the card
+	# immediately instead of waiting for the whole ability to finish.
 	await table.turn_manager.play_card_to_discard(table.drawn_card)
-	sync_runtime_state()
-	if mp_server and discarded_id >= 0:
-		SteamRoundService.broadcast_opponent_discard(actor_seat_id, discarded_id)
 	return true
 
 func request_ability_select(actor_seat_id: int, card: Card3D) -> void:
