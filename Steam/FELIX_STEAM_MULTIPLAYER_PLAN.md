@@ -122,13 +122,13 @@ Host broadcasts the post-shuffle draw-pile order as `Array[int]` of `card_id`s. 
 |------|-----------|--------|
 | 1 | Autoload skeleton + scene routing (all peers navigate IN_ROUND / WAITING) | ✅ Done |
 | 2 | GameTable multiplayer init (correct names, cameras, REMOTE_HUMAN seats) | ✅ Done |
-| 3 | Deal sync: deck sequence + private hand reveal | — |
-| 4 | Viewing phase sync: ready propagation, begin playing on all peers | — |
-| 5 | Turn loop: draw, swap, discard RPCs + client-side animation | — |
-| 6 | Abilities: look-own, look-opponent, blind-swap, look-and-swap (Queen) | — |
-| 7 | Matching: simultaneous right-click, rejection feedback, give-card flow | — |
-| 8 | Knock + final round: all peers see announcement, correct remaining turns | — |
-| 9 | Round end: reveal all, show scores, host returns room, session scoreboard | — |
+| 3 | Deal sync: deck sequence + private hand reveal | ✅ Done |
+| 4 | Viewing phase sync: ready propagation, begin playing on all peers | ✅ Done |
+| 5 | Turn loop: draw, swap, discard RPCs + client-side animation | ✅ Done |
+| 6 | Abilities: look-own, look-opponent, blind-swap, look-and-swap (Queen) | ✅ Done |
+| 7 | Matching: simultaneous right-click, rejection feedback, give-card flow | ✅ Done |
+| 8 | Knock + final round: all peers see announcement, correct remaining turns | ✅ Done |
+| 9 | Round end: reveal all, show scores, host returns room, session scoreboard | ✅ Done |
 
 ### Files created / modified in Phase 3
 

@@ -790,6 +790,13 @@ func _handle_round_end() -> void:
 
 	await scoring_manager.execute_round_end()
 
+	# Host: push round scores into the session scoreboard so it survives between rounds
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var scoreboard = SteamRoomService.room_state.session_scoreboard
+		if scoreboard != null:
+			for player in players:
+				scoreboard.add_score(player.participant_id, player.current_score)
+
 	# Show round end UI
 	var summary = scoring_manager.get_score_summary()
 	var scores = scoring_manager.calculate_all_scores()
@@ -798,7 +805,8 @@ func _handle_round_end() -> void:
 	if GameManager.knocker_id >= 0 and GameManager.knocker_id < players.size():
 		knocker_name = players[GameManager.knocker_id].player_name
 	if round_end_ui:
-		round_end_ui.show_results(summary, winner_id, knocker_name)
+		var is_mp := multiplayer.has_multiplayer_peer()
+		round_end_ui.show_results(summary, winner_id, knocker_name, is_mp, is_mp and multiplayer.is_server())
 
 func _on_play_again_pressed() -> void:
 	"""Start a new round — or return to Steam room in multiplayer."""

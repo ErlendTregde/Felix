@@ -13,7 +13,7 @@ func _ready() -> void:
 	play_again_button.pressed.connect(_on_play_again)
 	hide_ui()
 
-func show_results(summary: Array[Dictionary], winner_id: int, knocker_name: String) -> void:
+func show_results(summary: Array[Dictionary], winner_id: int, knocker_name: String, is_multiplayer: bool = false, is_host: bool = false) -> void:
 	"""Display round-end results."""
 	# Clear old score rows
 	for child in scores_container.get_children():
@@ -55,6 +55,17 @@ func show_results(summary: Array[Dictionary], winner_id: int, knocker_name: Stri
 		row.add_child(total_label)
 
 		scores_container.add_child(row)
+
+	# Button: host gets "Return to Lobby", clients see nothing, local gets "Play Again"
+	if is_multiplayer:
+		if is_host:
+			play_again_button.text = "Return to Lobby"
+			play_again_button.show()
+		else:
+			play_again_button.hide()
+	else:
+		play_again_button.text = "Play Again"
+		play_again_button.show()
 
 	center_panel.show()
 

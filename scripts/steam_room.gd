@@ -71,11 +71,24 @@ func _refresh_view() -> void:
 func _refresh_seat_labels(room_state: RoomState) -> void:
 	for child in seats_container.get_children():
 		child.queue_free()
+	var scoreboard = room_state.session_scoreboard
+	var has_scores := false
+	if scoreboard != null:
+		for v in scoreboard.scores_by_participant_id.values():
+			if int(v) != 0:
+				has_scores = true
+				break
 	for seat in room_state.seat_states:
 		var seat_label := Label.new()
-		seat_label.text = "%s: %s" % [seat.seat_label, seat.display_name if seat.is_occupied() else "Empty"]
-		if seat.is_occupied() and seat.is_ready:
-			seat_label.text += " (Ready)"
+		if seat.is_occupied():
+			seat_label.text = "%s: %s" % [seat.seat_label, seat.display_name]
+			if seat.is_ready:
+				seat_label.text += " (Ready)"
+			if has_scores and scoreboard != null:
+				var score: int = int(scoreboard.scores_by_participant_id.get(seat.occupant_participant_id, 0))
+				seat_label.text += "  —  %d pts" % score
+		else:
+			seat_label.text = "%s: Empty" % seat.seat_label
 		seat_label.add_theme_color_override("font_color", Color(1, 1, 1, 1))
 		seat_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
 		seat_label.add_theme_constant_override("outline_size", 3)

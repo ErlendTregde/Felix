@@ -13,6 +13,10 @@ func remove_participant(participant_id: int) -> void:
 	scores_by_participant_id.erase(participant_id)
 	display_names_by_participant_id.erase(participant_id)
 
+func add_score(participant_id: int, amount: int) -> void:
+	if scores_by_participant_id.has(participant_id):
+		scores_by_participant_id[participant_id] += amount
+
 func clear() -> void:
 	scores_by_participant_id.clear()
 	display_names_by_participant_id.clear()
