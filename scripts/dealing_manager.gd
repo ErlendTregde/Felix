@@ -35,6 +35,8 @@ func deal_cards_to_all_players() -> void:
 func _deal_multiplayer_host() -> void:
 	"""Host: deal with real card data, then broadcast sequence + private hands to peers."""
 	table.is_dealing = true
+	# Tell clients to start their deal animation immediately so they stay in sync with host
+	SteamRoundService.broadcast_deal_begin()
 	print("\n=== [HOST] Dealing Cards to %d Player(s) ===" % table.num_players)
 	for card_index in range(4):
 		for player_index in range(table.num_players):
@@ -51,8 +53,8 @@ func _deal_multiplayer_host() -> void:
 	for card in table.deck_manager.draw_pile:
 		remaining_ids.append(card.card_id)
 
-	# Trigger client deal animation via sequence broadcast
-	SteamRoundService.broadcast_deal_start(remaining_ids)
+	# Send the final draw pile sequence so clients have correct deck state for gameplay
+	SteamRoundService.broadcast_draw_pile_sequence(remaining_ids)
 
 	# Send each non-host peer their own 4 card IDs
 	var rs := SteamRoomService.get_room_state()

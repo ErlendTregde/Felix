@@ -46,20 +46,22 @@ func reset_state() -> void:
 	look_and_swap_second_slot = -1
 	look_and_swap_second_penalty_slot = -1
 
-func handle_ability_target_selection(card: Card3D) -> void:
-	"""Handle selecting a target card for an ability"""
+func handle_ability_target_selection(card: Card3D, skip_visuals: bool = false) -> void:
+	"""Handle selecting a target card for an ability.
+	skip_visuals=true when the host processes a remote client's action — state is updated
+	but no visual changes are made; the client handles its own visuals via RPC."""
 	var current_player_idx = GameManager.current_player_index
-	
+
 	# Special handling for BLIND_SWAP (two-step selection)
 	if current_ability == CardData.AbilityType.BLIND_SWAP:
-		handle_blind_swap_selection(card)
+		handle_blind_swap_selection(card, skip_visuals)
 		return
-	
+
 	# Special handling for LOOK_AND_SWAP (two-step selection)
 	if current_ability == CardData.AbilityType.LOOK_AND_SWAP:
-		handle_look_and_swap_selection(card)
+		handle_look_and_swap_selection(card, skip_visuals)
 		return
-	
+
 	# Check if the selected card is valid for the current ability
 	if current_ability == CardData.AbilityType.LOOK_OWN:
 		# For look_own, card must belong to current player
@@ -77,11 +79,15 @@ func handle_ability_target_selection(card: Card3D) -> void:
 		if not neighbors.has(card_owner_idx):
 			print("That player is not your neighbor! Select a neighbor's card.")
 			return
-	
-	# Found valid target
+
+	# Found valid target — update state regardless of visuals
 	ability_target_card = card
 	card.is_interactable = false  # Prevent re-clicking the selected card
-	
+	awaiting_ability_confirmation = true
+
+	if skip_visuals:
+		return  # Host processing remote action: no animations, no UI changes
+
 	# Switch selected card to darker "confirmed" cyan and lock all others
 	card.set_highlighted(true, true)
 	for g in table.player_grids:
@@ -94,23 +100,23 @@ func handle_ability_target_selection(card: Card3D) -> void:
 			if c != card:
 				c.set_highlighted(false)
 				c.is_interactable = false
-	
+
 	# Remove highlight before viewing so card face appears clean
 	card.set_highlighted(false)
 
 	# Calculate view position (same as draw card)
 	var view_position = table.view_helper.get_card_view_position()
-	
+
 	# Animate card to view position
 	card.move_to(view_position, 0.4, false)
-	
+
 	# Set global rotation to face current player
 	var view_rotation = table.view_helper.get_card_view_rotation()
 	card.global_rotation = Vector3(0, view_rotation, 0)
-	
+
 	# Wait for movement
 	await get_tree().create_timer(0.45).timeout
-	
+
 	# Flip face-up
 	if not card.is_face_up:
 		card.flip(true, 0.3)
@@ -119,19 +125,19 @@ func handle_ability_target_selection(card: Card3D) -> void:
 	else:
 		# Card already face-up, wait same time for consistency
 		await get_tree().create_timer(0.35).timeout
-	
+
 	# Tilt towards player (using helper function)
 	table.view_helper.tilt_card_towards_viewer(card)
 	await get_tree().create_timer(0.25).timeout
-	
+
 	# Update UI
 	table.turn_ui.update_action("Press SPACE to confirm")
-	awaiting_ability_confirmation = true
-	
+
 	print("Viewing: %s" % card.card_data.get_short_name())
 
-func handle_blind_swap_selection(card: Card3D) -> void:
-	"""Handle two-step selection for blind swap ability - supports re-selection at both steps"""
+func handle_blind_swap_selection(card: Card3D, skip_visuals: bool = false) -> void:
+	"""Handle two-step selection for blind swap ability - supports re-selection at both steps.
+	skip_visuals=true when host processes a remote client's selection."""
 	var current_player_idx = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player_idx)
 
@@ -147,16 +153,17 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 	# STEP 1 - No first card selected yet
 	if blind_swap_first_card == null:
 		blind_swap_first_card = card
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		await get_tree().create_timer(0.16).timeout
-		if blind_swap_first_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("First card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			if is_own_card:
-				table.turn_ui.update_action("Now select NEIGHBOR's card")
-			else:
-				table.turn_ui.update_action("Now select YOUR card")
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			await get_tree().create_timer(0.16).timeout
+			if blind_swap_first_card == card:
+				card.is_elevation_locked = true
+				print("First card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+				if is_own_card:
+					table.turn_ui.update_action("Now select NEIGHBOR's card")
+				else:
+					table.turn_ui.update_action("Now select YOUR card")
 		return
 
 	# Clicking the already-selected first card - ignore
@@ -171,37 +178,39 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 	if is_own_card == first_is_own:
 		# If second was also picked, deselect it too and reset step 2
 		if blind_swap_second_card != null:
-			_blind_swap_deselect_card(blind_swap_second_card)
+			if not skip_visuals:
+				_blind_swap_deselect_card(blind_swap_second_card)
 			blind_swap_second_card = null
 			awaiting_ability_confirmation = false
 		# Deselect old first card, select new one
-		_blind_swap_deselect_card(blind_swap_first_card)
+		if not skip_visuals:
+			_blind_swap_deselect_card(blind_swap_first_card)
 		blind_swap_first_card = card
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		await get_tree().create_timer(0.16).timeout
-		if blind_swap_first_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("First card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			if is_own_card:
-				table.turn_ui.update_action("Now select NEIGHBOR's card")
-			else:
-				table.turn_ui.update_action("Now select YOUR card")
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			await get_tree().create_timer(0.16).timeout
+			if blind_swap_first_card == card:
+				card.is_elevation_locked = true
+				print("First card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+				if is_own_card:
+					table.turn_ui.update_action("Now select NEIGHBOR's card")
+				else:
+					table.turn_ui.update_action("Now select YOUR card")
 		return
 
 	# STEP 2 - No second card selected yet (clicked card has opposite ownership = valid second pick)
 	if blind_swap_second_card == null:
 		blind_swap_second_card = card
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		# Set confirmation flag immediately so SPACE works even if pressed before the animation
-		# completes — Godot processes _input before timer callbacks on the same frame.
-		table.turn_ui.update_action("Press SPACE to swap cards")
 		awaiting_ability_confirmation = true
-		await get_tree().create_timer(0.16).timeout
-		if blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			table.turn_ui.update_action("Press SPACE to swap cards")
+			await get_tree().create_timer(0.16).timeout
+			if blind_swap_second_card == card:
+				card.is_elevation_locked = true
+				print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 		return
 
 	# Clicking the already-selected second card - ignore
@@ -212,15 +221,18 @@ func handle_blind_swap_selection(card: Card3D) -> void:
 	var second_owner_idx = table._find_card_owner_idx(blind_swap_second_card)
 	var second_is_own = (second_owner_idx == current_player_idx)
 	if is_own_card == second_is_own:
-		_blind_swap_deselect_card(blind_swap_second_card)
+		if not skip_visuals:
+			_blind_swap_deselect_card(blind_swap_second_card)
 		blind_swap_second_card = card
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		await get_tree().create_timer(0.16).timeout
-		if blind_swap_second_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			table.turn_ui.update_action("Press SPACE to swap cards")
+		awaiting_ability_confirmation = true
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			await get_tree().create_timer(0.16).timeout
+			if blind_swap_second_card == card:
+				card.is_elevation_locked = true
+				print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+				table.turn_ui.update_action("Press SPACE to swap cards")
 
 func _blind_swap_deselect_card(card: Card3D) -> void:
 	"""Return a Jack-ability-selected card to its available (bright cyan) state"""
@@ -234,8 +246,9 @@ func _look_and_swap_deselect_card(card: Card3D) -> void:
 	card.elevate(0.0, 0.15)
 	card.set_highlighted(true, false)  # bright cyan = still selectable
 
-func handle_look_and_swap_selection(card: Card3D) -> void:
-	"""Handle two-step selection for look and swap ability (Queen) - supports re-selection at both steps"""
+func handle_look_and_swap_selection(card: Card3D, skip_visuals: bool = false) -> void:
+	"""Handle two-step selection for look and swap ability (Queen) - supports re-selection at both steps.
+	skip_visuals=true when host processes a remote client's selection."""
 	var current_player_idx = GameManager.current_player_index
 	var neighbors = table.view_helper.get_neighbors(current_player_idx)
 
@@ -253,16 +266,17 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		look_and_swap_first_card = card
 		look_and_swap_first_original_pos = card.base_position
 		_queen_store_card_slot(card, true)
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		await get_tree().create_timer(0.16).timeout
-		if look_and_swap_first_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("First card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			if is_own_card:
-				table.turn_ui.update_action("Now select NEIGHBOR's card")
-			else:
-				table.turn_ui.update_action("Now select YOUR card")
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			await get_tree().create_timer(0.16).timeout
+			if look_and_swap_first_card == card:
+				card.is_elevation_locked = true
+				print("First card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+				if is_own_card:
+					table.turn_ui.update_action("Now select NEIGHBOR's card")
+				else:
+					table.turn_ui.update_action("Now select YOUR card")
 		return
 
 	# Clicking the already-selected first card - ignore
@@ -275,26 +289,27 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 
 	# RE-SELECT FIRST CARD: same ownership type as current first card - switch to new card
 	if is_own_card == first_is_own:
-		# If second was also picked, deselect it too and reset step 2
 		if look_and_swap_second_card != null:
-			_look_and_swap_deselect_card(look_and_swap_second_card)
+			if not skip_visuals:
+				_look_and_swap_deselect_card(look_and_swap_second_card)
 			look_and_swap_second_card = null
 			awaiting_ability_confirmation = false
-		# Deselect old first card, select new one
-		_look_and_swap_deselect_card(look_and_swap_first_card)
+		if not skip_visuals:
+			_look_and_swap_deselect_card(look_and_swap_first_card)
 		look_and_swap_first_card = card
 		look_and_swap_first_original_pos = card.base_position
 		_queen_store_card_slot(card, true)
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		await get_tree().create_timer(0.16).timeout
-		if look_and_swap_first_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("First card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
-			if is_own_card:
-				table.turn_ui.update_action("Now select NEIGHBOR's card")
-			else:
-				table.turn_ui.update_action("Now select YOUR card")
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			await get_tree().create_timer(0.16).timeout
+			if look_and_swap_first_card == card:
+				card.is_elevation_locked = true
+				print("First card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+				if is_own_card:
+					table.turn_ui.update_action("Now select NEIGHBOR's card")
+				else:
+					table.turn_ui.update_action("Now select YOUR card")
 		return
 
 	# STEP 2 - No second card selected yet (clicked card has opposite ownership = valid second pick)
@@ -302,16 +317,15 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 		look_and_swap_second_card = card
 		look_and_swap_second_original_pos = card.base_position
 		_queen_store_card_slot(card, false)
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		# Set confirmation flag immediately so SPACE works even if pressed before the animation
-		# completes — Godot processes _input before timer callbacks on the same frame.
-		table.turn_ui.update_action("Press SPACE to view cards")
 		awaiting_ability_confirmation = true
-		await get_tree().create_timer(0.16).timeout
-		if look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			table.turn_ui.update_action("Press SPACE to view cards")
+			await get_tree().create_timer(0.16).timeout
+			if look_and_swap_second_card == card:
+				card.is_elevation_locked = true
+				print("Second card selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 		return
 
 	# Clicking the already-selected second card - ignore
@@ -322,18 +336,20 @@ func handle_look_and_swap_selection(card: Card3D) -> void:
 	var second_owner_idx = table._find_card_owner_idx(look_and_swap_second_card)
 	var second_is_own = (second_owner_idx == current_player_idx)
 	if is_own_card == second_is_own:
-		_look_and_swap_deselect_card(look_and_swap_second_card)
+		if not skip_visuals:
+			_look_and_swap_deselect_card(look_and_swap_second_card)
 		look_and_swap_second_card = card
 		look_and_swap_second_original_pos = card.base_position
 		_queen_store_card_slot(card, false)
-		card.set_highlighted(true, true)
-		card.elevate(0.2, 0.15)
-		table.turn_ui.update_action("Press SPACE to view cards")
 		awaiting_ability_confirmation = true
-		await get_tree().create_timer(0.16).timeout
-		if look_and_swap_second_card == card:  # Guard: may have been replaced by a faster click
-			card.is_elevation_locked = true
-			print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
+		if not skip_visuals:
+			card.set_highlighted(true, true)
+			card.elevate(0.2, 0.15)
+			table.turn_ui.update_action("Press SPACE to view cards")
+			await get_tree().create_timer(0.16).timeout
+			if look_and_swap_second_card == card:
+				card.is_elevation_locked = true
+				print("Second card re-selected: %s (Player %d)" % [card.card_data.get_short_name(), card_owner_idx + 1])
 
 func _queen_store_card_slot(card: Card3D, is_first: bool) -> void:
 	"""Capture the grid reference and slot index for a Queen-selected card at the moment

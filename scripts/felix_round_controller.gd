@@ -119,7 +119,11 @@ func request_discard_drawn(actor_seat_id: int) -> bool:
 func request_ability_select(actor_seat_id: int, card: Card3D) -> void:
 	if not _can_actor_take_turn_action(actor_seat_id):
 		return
-	await table.ability_manager.handle_ability_target_selection(card)
+	# Skip visual feedback when host is processing a remote client's action —
+	# the client handles its own visuals via RPC; host only needs state updated.
+	var skip_visuals: bool = multiplayer.has_multiplayer_peer() and multiplayer.is_server() \
+		and actor_seat_id != table.local_seat_index
+	await table.ability_manager.handle_ability_target_selection(card, skip_visuals)
 	sync_runtime_state()
 
 func request_ability_confirm(actor_seat_id: int) -> void:

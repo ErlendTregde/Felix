@@ -7,7 +7,8 @@ extends Node
 
 var _round_controller: FelixRoundController = null
 var _pending_snapshots: Array[Dictionary] = []
-var _pending_deal_ids: Array[int] = []
+var _pending_deal_begin: bool = false         # buffered deal-begin when controller not yet ready
+var _pending_draw_pile_ids: Array[int] = []   # buffered draw pile sequence
 # Tracks a face-down card animating on behalf of a remote player (draw/discard/swap)
 var _opponent_held_card: Card3D = null
 
@@ -22,7 +23,8 @@ func bind_round_controller(rc: FelixRoundController) -> void:
 	_round_controller = rc
 	_log("Round controller bound")
 	_drain_pending_snapshots()
-	_drain_pending_deal()
+	_drain_pending_deal_begin()
+	_drain_pending_draw_pile_sequence()
 
 func release_round_controller() -> void:
 	_round_controller = null
@@ -36,15 +38,21 @@ func _drain_pending_snapshots() -> void:
 		_apply_round_snapshot(snapshot)
 	_pending_snapshots.clear()
 
-func _drain_pending_deal() -> void:
-	if _pending_deal_ids.is_empty():
+func _drain_pending_deal_begin() -> void:
+	if not _pending_deal_begin:
 		return
-	_log("Draining buffered deal start (%d remaining IDs)" % _pending_deal_ids.size())
-	var ids := _pending_deal_ids.duplicate()
-	_pending_deal_ids.clear()
-	_round_controller.table.deck_manager.apply_sequence(ids)
+	_pending_deal_begin = false
+	_log("Draining buffered deal begin")
 	if not multiplayer.is_server():
 		_round_controller.table.dealing_manager.deal_cards_to_all_players_client()
+
+func _drain_pending_draw_pile_sequence() -> void:
+	if _pending_draw_pile_ids.is_empty():
+		return
+	_log("Draining buffered draw pile sequence (%d IDs)" % _pending_draw_pile_ids.size())
+	var ids := _pending_draw_pile_ids.duplicate()
+	_pending_draw_pile_ids.clear()
+	_round_controller.table.deck_manager.apply_sequence(ids)
 
 # ---------------------------------------------------------------------------
 # RPC helpers
@@ -153,27 +161,52 @@ func _client_apply_round_snapshot(snapshot: Dictionary) -> void:
 # Step 3: Deal sync
 # ---------------------------------------------------------------------------
 
-func broadcast_deal_start(remaining_ids: Array[int]) -> void:
-	_client_start_deal.rpc(remaining_ids)
+## Called at the START of host dealing so clients begin their animation immediately.
+func broadcast_deal_begin() -> void:
+	_client_deal_begin.rpc()
+
+## Called AFTER host deals — delivers the final draw pile order to all peers.
+func broadcast_draw_pile_sequence(remaining_ids: Array[int]) -> void:
+	_client_apply_draw_pile_sequence.rpc(remaining_ids)
 
 func broadcast_private_hand(peer_id: int, seat_index: int, hand_ids: Array[int]) -> void:
 	_client_receive_private_hand.rpc_id(peer_id, seat_index, hand_ids)
 
-@rpc("authority", "call_local", "reliable")
-func _client_start_deal(remaining_ids: Array[int]) -> void:
+## Clients receive this at the same time the host starts dealing → zero visible delay.
+@rpc("authority", "call_remote", "reliable")
+func _client_deal_begin() -> void:
 	if _round_controller == null:
-		_log("_client_start_deal arrived before round controller — buffering")
-		_pending_deal_ids.assign(remaining_ids)
+		_log("_client_deal_begin arrived before round controller — buffering")
+		_pending_deal_begin = true
 		return
-	# Apply remaining draw pile sequence on all peers (host updates its own pile too)
+	_round_controller.table.dealing_manager.deal_cards_to_all_players_client()
+
+## Delivers the final draw pile sequence after the host has finished dealing.
+## Clients apply this before their first draw to ensure deck state is consistent.
+@rpc("authority", "call_remote", "reliable")
+func _client_apply_draw_pile_sequence(remaining_ids: Array[int]) -> void:
+	if _round_controller == null:
+		_log("_client_apply_draw_pile_sequence arrived before round controller — buffering")
+		_pending_draw_pile_ids.assign(remaining_ids)
+		return
 	_round_controller.table.deck_manager.apply_sequence(remaining_ids)
-	# Only clients start the deal animation — host already dealt
-	if not multiplayer.is_server():
-		_round_controller.table.dealing_manager.deal_cards_to_all_players_client()
 
 # ---------------------------------------------------------------------------
 # Step 4: Viewing phase sync
 # ---------------------------------------------------------------------------
+
+## Broadcast to all clients (call_remote) that seat_idx finished viewing and returned cards.
+## Host calls this for itself (after returning its own cards) and for incoming client readies.
+func broadcast_player_viewing_done(seat_idx: int) -> void:
+	_client_player_viewing_done.rpc(seat_idx)
+
+@rpc("authority", "call_remote", "reliable")
+func _client_player_viewing_done(seat_idx: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	if tbl.viewing_manager and tbl.initial_view_cards.has(seat_idx):
+		tbl.viewing_manager.return_bottom_cards_for_player(seat_idx)
 
 @rpc("any_peer", "reliable")
 func client_request_viewing_ready() -> void:
@@ -185,9 +218,18 @@ func client_request_viewing_ready() -> void:
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		push_warning("SteamRoundService: viewing_ready from seat %d but state is not INITIAL_VIEWING" % seat_idx)
 		return
+	# Animate card return on host for this remote player
+	var tbl = _round_controller.table
+	if tbl.initial_view_cards.has(seat_idx):
+		tbl.viewing_manager.return_bottom_cards_for_player(seat_idx)
+	# Tell all OTHER clients (not the sender) to also animate this player's card return
+	var sender_id := multiplayer.get_remote_sender_id()
+	for peer_id in multiplayer.get_peers():
+		if peer_id != sender_id:
+			_client_player_viewing_done.rpc_id(peer_id, seat_idx)
 	_round_controller.request_ready_state(seat_idx)
 	var ready_count := GameManager.get_ready_count()
-	_log("Viewing ready from seat %d — %d/%d ready" % [seat_idx, ready_count, _round_controller.table.num_players])
+	_log("Viewing ready from seat %d — %d/%d ready" % [seat_idx, ready_count, tbl.num_players])
 	if GameManager.are_all_players_ready():
 		await get_tree().create_timer(0.2).timeout
 		_client_begin_playing_phase.rpc()

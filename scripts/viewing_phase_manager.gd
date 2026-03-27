@@ -87,12 +87,12 @@ func lift_bottom_cards_for_viewing(player_idx: int) -> void:
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
 		return
 
-	# Flip face-up only for the local seat — opponents see cards face-down
-	if is_local:
-		if not card1.is_face_up:
-			card1.flip(true, 0.3)
-		if not card2.is_face_up:
-			card2.flip(true, 0.3)
+	# Flip all cards face-up. For non-local seats the tilt-away (below) ensures
+	# the face points away from the local camera so only the back is visible.
+	if not card1.is_face_up:
+		card1.flip(true, 0.3)
+	if not card2.is_face_up:
+		card2.flip(true, 0.3)
 	await get_tree().create_timer(0.35).timeout
 
 	if GameManager.current_state != GameManager.GameState.INITIAL_VIEWING:
@@ -255,6 +255,8 @@ func _on_player_ready_pressed(player_id: int) -> void:
 	print("Ready count: %d/%d" % [ready_count, table.num_players])
 
 	if multiplayer.has_multiplayer_peer():
+		# Broadcast to all clients that this player has finished viewing
+		SteamRoundService.broadcast_player_viewing_done(player_id)
 		# Host: check if all ready and broadcast begin; do not end locally yet
 		if GameManager.are_all_players_ready():
 			await get_tree().create_timer(0.5).timeout
