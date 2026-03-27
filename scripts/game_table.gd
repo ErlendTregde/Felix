@@ -941,36 +941,11 @@ func _get_card_slot_info(card: Card3D) -> Dictionary:
 	return {"slot": -1, "is_penalty": false}
 
 func _apply_client_swap(old_card: Card3D, slot: int, is_penalty: bool) -> void:
-	"""Client-side visual swap: instantly place drawn_card into the grid slot."""
+	"""Client-side visual swap: animate old card to discard, drawn card into grid slot."""
 	if drawn_card == null:
 		return
 	var grid = player_grids[local_seat_index]
-	# Discard the old card locally
-	deck_manager.add_to_discard(old_card.card_data)
-	if discard_pile_visual:
-		discard_pile_visual.set_count(deck_manager.discard_pile.size())
-		discard_pile_visual.set_top_card(old_card.card_data)
-	old_card.queue_free()
-	# Place drawn card into the slot
-	var new_card := drawn_card
-	drawn_card = null
-	new_card.is_interactable = false
-	if new_card.get_parent():
-		new_card.get_parent().remove_child(new_card)
-	if is_penalty:
-		if slot >= 0 and slot < grid.penalty_cards.size():
-			grid.penalty_cards[slot] = new_card
-			grid.add_child(new_card)
-			new_card.global_position = grid.to_global(grid.penalty_positions[slot]) if slot < grid.penalty_positions.size() else grid.global_position
-	else:
-		grid.cards[slot] = new_card
-		grid.add_child(new_card)
-		new_card.position = grid.card_positions[slot]
-		new_card.base_position = new_card.global_position
-	new_card.rotation = Vector3.ZERO
-	if new_card.is_face_up:
-		new_card.flip(false, 0.2)
-	# Disable all interactions until next turn
+	# Disable all interactions immediately
 	if discard_pile_visual:
 		discard_pile_visual.set_interactive(false)
 	for g in player_grids:
@@ -978,3 +953,47 @@ func _apply_client_swap(old_card: Card3D, slot: int, is_penalty: bool) -> void:
 			var c = g.get_card_at(i)
 			if c:
 				c.is_interactable = false
+	# Compute target position for the new card
+	var target_pos: Vector3
+	if is_penalty:
+		target_pos = grid.to_global(grid.penalty_positions[slot]) if slot < grid.penalty_positions.size() else grid.global_position
+	else:
+		target_pos = grid.to_global(grid.card_positions[slot])
+	# Animate old card to discard pile
+	var discard_pos: Vector3 = discard_pile_marker.global_position
+	old_card.is_interactable = false
+	old_card.rotation = Vector3.ZERO
+	old_card.move_to(discard_pos, 0.35, false)
+	# Animate drawn card to grid slot
+	var new_card := drawn_card
+	drawn_card = null
+	new_card.is_interactable = false
+	new_card.rotation = Vector3.ZERO
+	if new_card.is_face_up:
+		new_card.flip(false, 0.3)
+	new_card.move_to(target_pos, 0.4, false)
+	# Update data immediately (don't wait for animation)
+	deck_manager.add_to_discard(old_card.card_data)
+	if discard_pile_visual:
+		discard_pile_visual.set_count(deck_manager.discard_pile.size())
+		discard_pile_visual.set_top_card(old_card.card_data)
+	# Clear old card from grid and place new card
+	if is_penalty:
+		if slot >= 0 and slot < grid.penalty_cards.size():
+			grid.penalty_cards[slot] = new_card
+	else:
+		grid.cards[slot] = new_card
+	# Reparent new card to grid after a short delay
+	await get_tree().create_timer(0.45).timeout
+	if is_instance_valid(old_card):
+		old_card.queue_free()
+	if is_instance_valid(new_card):
+		if new_card.get_parent() != grid:
+			new_card.get_parent().remove_child(new_card)
+			grid.add_child(new_card)
+		if is_penalty:
+			new_card.position = grid.penalty_positions[slot] if slot < grid.penalty_positions.size() else Vector3.ZERO
+		else:
+			new_card.position = grid.card_positions[slot]
+		new_card.base_position = new_card.global_position
+		new_card.rotation = Vector3.ZERO

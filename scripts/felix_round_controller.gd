@@ -126,6 +126,12 @@ func request_ability_select(actor_seat_id: int, card: Card3D) -> void:
 func request_ability_confirm(actor_seat_id: int) -> void:
 	if not _can_actor_take_turn_action(actor_seat_id):
 		return
+	# Return observer-lifted cards for look abilities when host is the actor
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var ab = table.ability_manager
+		if ab.current_ability == CardData.AbilityType.LOOK_OWN or ab.current_ability == CardData.AbilityType.LOOK_OPPONENT:
+			if actor_seat_id == table.local_seat_index:
+				SteamRoundService.broadcast_observer_cards_return()
 	await table.ability_manager.confirm_ability_viewing()
 	sync_runtime_state()
 
@@ -143,28 +149,32 @@ func request_match(actor_seat_id: int, card: Card3D) -> void:
 		return
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		return  # Step 7: route through RPC
-	# Capture pre-match state before card is freed by animation
 	var mp_server := multiplayer.has_multiplayer_peer() and multiplayer.is_server()
-	var card_seat: int = card.owner_seat_id
-	var card_slot_info: Dictionary = table._get_card_slot_info(card) if mp_server else {"slot": -1, "is_penalty": false}
-	var top_discard = table.deck_manager.peek_top_discard() if mp_server else null
-	var was_match: bool = mp_server and top_discard != null and card.card_data != null and card.card_data.rank == top_discard.rank
-	var actor_penalty_before: int = table.player_grids[actor_seat_id].penalty_cards.size() if mp_server and actor_seat_id < table.player_grids.size() else -1
 
-	await table.match_manager.on_card_right_clicked(actor_seat_id, card)
-	sync_runtime_state()
-
-	# Broadcast match results to all clients (host's own local match)
 	if mp_server:
-		if was_match and card_slot_info.slot >= 0:
-			SteamRoundService.broadcast_host_match_card_removed(card_seat, card_slot_info.slot, card_slot_info.is_penalty)
-		if actor_penalty_before >= 0 and actor_seat_id < table.player_grids.size():
-			var actor_grid = table.player_grids[actor_seat_id]
-			if actor_grid.penalty_cards.size() > actor_penalty_before:
-				var pen_card = actor_grid.penalty_cards.back()
-				if pen_card and pen_card.card_data:
-					SteamRoundService.broadcast_host_penalty_card_added(actor_seat_id, pen_card.card_data.card_id)
+		# Broadcast match animation to all clients BEFORE running local animation
+		# so clients animate in parallel with the host
+		var card_seat: int = card.owner_seat_id
+		var card_slot_info: Dictionary = table._get_card_slot_info(card)
+		var top_discard = table.deck_manager.peek_top_discard()
+		var did_match: bool = top_discard != null and card.card_data != null and card.card_data.rank == top_discard.rank
+		var card_id: int = card.card_data.card_id
+		var is_own_card: bool = (card_seat == actor_seat_id)
+		var penalty_card_id: int = -1
+		if not did_match and not table.deck_manager.draw_pile.is_empty():
+			penalty_card_id = table.deck_manager.draw_pile[0].card_id
+		if card_slot_info.slot >= 0:
+			SteamRoundService._client_match_animation.rpc(
+				actor_seat_id, card_seat, card_slot_info.slot, card_slot_info.is_penalty,
+				card_id, did_match, is_own_card, penalty_card_id)
+
+	# Run local animation on host (or local singleplayer)
+	await table.match_manager.on_card_right_clicked(actor_seat_id, card)
+	# sync + broadcast: get_private_snapshot_for already calls sync_runtime_state
+	if mp_server:
 		SteamRoundService._broadcast_round_snapshot_to_all()
+	else:
+		sync_runtime_state()
 
 func request_give_card(actor_seat_id: int, card: Card3D) -> void:
 	if table.match_manager.give_card_actor_seat_idx != actor_seat_id:
@@ -184,10 +194,11 @@ func request_knock(actor_seat_id: int) -> void:
 
 func complete_turn() -> void:
 	GameManager.next_turn()
-	sync_runtime_state()
 	# Broadcast updated turn state to all clients so they can advance their turn
 	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		SteamRoundService._broadcast_round_snapshot_to_all()
+	else:
+		sync_runtime_state()
 
 func get_public_snapshot() -> Dictionary:
 	sync_runtime_state()

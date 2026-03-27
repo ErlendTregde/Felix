@@ -11,6 +11,8 @@ var _pending_deal_begin: bool = false         # buffered deal-begin when control
 var _pending_draw_pile_ids: Array[int] = []   # buffered draw pile sequence
 # Tracks a face-down card animating on behalf of a remote player (draw/discard/swap)
 var _opponent_held_card: Card3D = null
+# Observer-lifted cards waiting for the actor to confirm (event-driven return, no timer)
+var _observer_lifted_cards: Array[Dictionary] = []  # [{card, orig_rot}]
 
 func _log(msg: String) -> void:
 	print("[SteamRoundService] %s" % msg)
@@ -615,27 +617,39 @@ func _play_ability_observer_lift_local(actor_seat: int, card_seat: int, slot: in
 	var orig_rot: Vector3 = card.global_rotation
 	card.global_rotation = Vector3(0, view_rot, 0)
 	card.move_to(view_pos, 0.4, false)
-	# After viewing delay, return card to grid (face-down, no flip)
-	_return_observer_card_after_delay(card, orig_rot, tbl)
+	# Store lifted card — will be returned when actor confirms (event-driven, no timer)
+	_observer_lifted_cards.append({"card": card, "orig_rot": orig_rot})
 
-func _return_observer_card_after_delay(card: Card3D, orig_rot: Vector3, tbl) -> void:
-	await get_tree().create_timer(1.8).timeout
-	if not is_instance_valid(card):
+## Return all observer-lifted cards to their grid positions. Called when the actor confirms.
+func _return_all_observer_cards() -> void:
+	if _round_controller == null:
+		_observer_lifted_cards.clear()
 		return
-	# Find where this card belongs now
-	for grid: PlayerGrid in tbl.player_grids:
-		for i in range(4):
-			if grid.get_card_at(i) == card:
-				var target: Vector3 = grid.to_global(grid.card_positions[i])
-				card.global_rotation = orig_rot
-				card.move_to(target, 0.4, false)
-				return
-		for i in range(grid.penalty_cards.size()):
-			if grid.penalty_cards[i] == card:
-				var target: Vector3 = grid.to_global(grid.penalty_positions[i])
-				card.global_rotation = orig_rot
-				card.move_to(target, 0.4, false)
-				return
+	var tbl = _round_controller.table
+	for entry in _observer_lifted_cards:
+		var card: Card3D = entry["card"]
+		var orig_rot: Vector3 = entry["orig_rot"]
+		if not is_instance_valid(card):
+			continue
+		# Find where this card belongs now
+		var found := false
+		for grid: PlayerGrid in tbl.player_grids:
+			for i in range(4):
+				if grid.get_card_at(i) == card:
+					card.global_rotation = orig_rot
+					card.move_to(grid.to_global(grid.card_positions[i]), 0.4, false)
+					found = true
+					break
+			if not found:
+				for i in range(grid.penalty_cards.size()):
+					if grid.penalty_cards[i] == card:
+						card.global_rotation = orig_rot
+						card.move_to(grid.to_global(grid.penalty_positions[i]), 0.4, false)
+						found = true
+						break
+			if found:
+				break
+	_observer_lifted_cards.clear()
 
 ## Broadcast the blind-swap crossing animation to all client observers.
 func broadcast_blind_swap_observer(c1_seat: int, c1_slot: int, c1_pen: bool, c2_seat: int, c2_slot: int, c2_pen: bool) -> void:
@@ -676,16 +690,22 @@ func _play_blind_swap_observer_local(c1_seat: int, c1_slot: int, c1_pen: bool, c
 	card1.is_elevation_locked = true
 	card2.is_elevation_locked = true
 	await get_tree().create_timer(0.5).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Cross-animate: each card flies to the other's grid slot
 	card1.is_elevation_locked = false
 	card2.is_elevation_locked = false
 	card1.move_to(card1_target, 0.4, false)
 	card2.move_to(card2_target, 0.4, false)
 	await get_tree().create_timer(0.45).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Lower
 	card1.lower(0.2)
 	card2.lower(0.2)
 	await get_tree().create_timer(0.25).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Update grid arrays so logical state matches visual
 	if c1_pen:
 		card1_grid.penalty_cards[c1_slot] = card2
@@ -760,6 +780,8 @@ func _play_queen_observer_local(actor_seat: int, c1_seat: int, c1_slot: int, c1_
 	card1.is_elevation_locked = true
 	card2.is_elevation_locked = true
 	await get_tree().create_timer(0.5).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Rotate to face actor and move to side-by-side view positions
 	var view_center: Vector3 = tbl.view_helper.get_card_view_position_for(actor_seat)
 	var sideways: Vector3 = tbl.view_helper.get_card_view_sideways_for(actor_seat)
@@ -771,11 +793,15 @@ func _play_queen_observer_local(actor_seat: int, c1_seat: int, c1_slot: int, c1_
 	card1.move_to(view_center - sideways * 1.0, 0.4, false)
 	card2.move_to(view_center + sideways * 1.0, 0.4, false)
 	await get_tree().create_timer(0.45).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Tilt away (observer sees back of card — actor is "looking" privately)
 	tbl.view_helper.tilt_card_towards_viewer(card1, true)
 	tbl.view_helper.tilt_card_towards_viewer(card2, true)
 	# Hold to show viewing in progress
 	await get_tree().create_timer(1.2).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Reset tilt + rotation before returning
 	card1.rotation = Vector3.ZERO
 	card2.rotation = Vector3.ZERO
@@ -784,6 +810,8 @@ func _play_queen_observer_local(actor_seat: int, c1_seat: int, c1_slot: int, c1_
 	card1.move_to(final1, 0.4, false)
 	card2.move_to(final2, 0.4, false)
 	await get_tree().create_timer(0.45).timeout
+	if not is_instance_valid(card1) or not is_instance_valid(card2):
+		return
 	# Update grid arrays + owner refs + reparent
 	if did_swap:
 		if c1_pen:
@@ -859,6 +887,18 @@ func _grid_slot_local_pos(grid: PlayerGrid, slot: int, is_penalty: bool) -> Vect
 		return grid.penalty_positions[ps]
 	return grid.card_positions[slot]
 
+## Broadcast "return observer cards" to all clients. Called when an actor confirms ability viewing.
+func broadcast_observer_cards_return() -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	# Return local observer cards on the host too
+	_return_all_observer_cards()
+	_client_observer_cards_return.rpc()
+
+@rpc("authority", "call_remote", "reliable")
+func _client_observer_cards_return() -> void:
+	_return_all_observer_cards()
+
 @rpc("any_peer", "reliable")
 func client_request_ability_confirm() -> void:
 	if not multiplayer.is_server():
@@ -868,6 +908,10 @@ func client_request_ability_confirm() -> void:
 		return
 	if GameManager.current_player_index != actor_seat:
 		return
+	# Return observer cards for look_own/look_opponent before processing confirm
+	var ab = _round_controller.table.ability_manager
+	if ab.current_ability == CardData.AbilityType.LOOK_OWN or ab.current_ability == CardData.AbilityType.LOOK_OPPONENT:
+		broadcast_observer_cards_return()
 	await _round_controller.request_ability_confirm(actor_seat)
 
 ## Send both Queen-selected card IDs to the acting remote client for side-by-side display.
@@ -941,36 +985,191 @@ func client_request_match(target_seat: int, slot: int, is_penalty: bool) -> void
 	if actor_seat < 0 or _round_controller == null:
 		return
 	var tbl = _round_controller.table
-	# Fast-reject if match window already locked on host
 	if tbl.match_manager.is_processing_match or tbl.match_manager.match_claimed:
 		return
-	var card: Card3D = null
-	if is_penalty:
-		if target_seat >= 0 and target_seat < tbl.player_grids.size():
-			var grid = tbl.player_grids[target_seat]
-			if slot >= 0 and slot < grid.penalty_cards.size():
-				card = grid.penalty_cards[slot]
-	else:
-		if target_seat >= 0 and target_seat < tbl.player_grids.size():
-			card = tbl.player_grids[target_seat].get_card_at(slot)
+	var card: Card3D = _find_grid_card(tbl, target_seat, slot, is_penalty)
 	if card == null:
 		return
-	# Capture match info before await (card may be freed)
 	var top_discard = tbl.deck_manager.peek_top_discard()
-	var did_match: bool = top_discard != null and card.card_data.rank == top_discard.rank
+	if top_discard == null:
+		return
+	var did_match: bool = card.card_data.rank == top_discard.rank
 	var is_own_card: bool = (target_seat == actor_seat)
-	await _round_controller.request_match(actor_seat, card)
-	_broadcast_round_snapshot_to_all()
-	# Notify all clients about the card that was removed (successful match)
+	var card_id: int = card.card_data.card_id
+	# Pre-compute penalty card if match will fail
+	var penalty_card_id: int = -1
+	if not did_match and not tbl.deck_manager.draw_pile.is_empty():
+		penalty_card_id = tbl.deck_manager.draw_pile[0].card_id
+	# Lock matching on host immediately
+	tbl.match_manager.is_processing_match = true
 	if did_match:
-		_client_match_card_removed.rpc(target_seat, slot, is_penalty)
-	# If opponent match, actor must give a card
-	if tbl.match_manager.is_choosing_give_card and tbl.match_manager.give_card_actor_seat_idx == actor_seat:
-		_client_begin_give_card.rpc_id(sender_peer, tbl.match_manager.give_card_target_player_idx)
+		tbl.match_manager.match_claimed = true
+	# Broadcast animation to ALL clients (acting client + observers)
+	_client_match_animation.rpc(actor_seat, target_seat, slot, is_penalty, card_id, did_match, is_own_card, penalty_card_id)
+	# Play animation on host too (so host sees it)
+	await _play_match_animation_local(actor_seat, target_seat, slot, is_penalty, card_id, did_match, is_own_card, penalty_card_id)
+	# Post-match state
+	if did_match and not is_own_card:
+		tbl.match_manager.give_card_actor_seat_idx = actor_seat
+		tbl.match_manager.give_card_target_player_idx = target_seat
+		tbl.match_manager.is_choosing_give_card = true
+		_client_begin_give_card.rpc_id(sender_peer, target_seat)
+	_broadcast_round_snapshot_to_all()
 
-## Removes a matched card from all clients' grids (called after a successful match on host).
+## Full match animation played on any peer. Replicates match_manager._attempt_match visuals.
+@rpc("authority", "call_remote", "reliable")
+func _client_match_animation(actor_seat: int, card_seat: int, card_slot: int, card_is_penalty: bool, card_id: int, did_match: bool, is_own_card: bool, penalty_card_id: int) -> void:
+	if _round_controller == null:
+		return
+	await _play_match_animation_local(actor_seat, card_seat, card_slot, card_is_penalty, card_id, did_match, is_own_card, penalty_card_id)
+
+func _play_match_animation_local(actor_seat: int, card_seat: int, card_slot: int, card_is_penalty: bool, card_id: int, did_match: bool, _is_own_card: bool, penalty_card_id: int) -> void:
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	var card: Card3D = _find_grid_card(tbl, card_seat, card_slot, card_is_penalty)
+	if card == null or not is_instance_valid(card):
+		return
+	tbl.match_manager.is_processing_match = true
+	# Set card_data so the flip reveal shows the correct value
+	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
+	if card_data:
+		card.initialize(card_data, false)
+	# Save original location for snap-back on failure
+	var original_parent = card.get_parent()
+	var original_base_pos = card.base_position
+	# STEP 1: Lift
+	var lift_tween = card.create_tween()
+	lift_tween.set_ease(Tween.EASE_OUT)
+	lift_tween.tween_property(card, "global_position:y", card.global_position.y + 0.5, 0.1)
+	await get_tree().create_timer(0.12).timeout
+	if not is_instance_valid(card):
+		return
+	# STEP 2: Reparent to table for global movement
+	var mid_global = card.global_position
+	if card.get_parent() != tbl:
+		card.get_parent().remove_child(card)
+		tbl.add_child(card)
+		card.global_position = mid_global
+	# STEP 3: Slide toward discard pile
+	var discard_above = tbl.discard_pile_marker.global_position + Vector3(0, 0.4, 0)
+	card.move_to(discard_above, 0.25, false)
+	await get_tree().create_timer(0.28).timeout
+	if not is_instance_valid(card):
+		return
+	# STEP 4: Flip face-up to reveal
+	if not card.is_face_up:
+		card.flip(true, 0.2)
+	await get_tree().create_timer(0.3).timeout
+	if not is_instance_valid(card):
+		return
+	# STEP 5: Brief pause
+	await get_tree().create_timer(0.15).timeout
+	if not is_instance_valid(card):
+		return
+	# STEP 6: Outcome
+	if did_match:
+		# Remove from grid
+		var grid = tbl.player_grids[card_seat]
+		if card_is_penalty:
+			if card_slot >= 0 and card_slot < grid.penalty_cards.size():
+				grid.penalty_cards[card_slot] = null
+		else:
+			if card_slot >= 0 and card_slot < 4:
+				grid.cards[card_slot] = null
+		tbl.match_manager.match_claimed = true
+		# Green flash
+		tbl.match_manager._flash_card_color(card, Color(0.0, 1.0, 0.3), 0.4)
+		# Slide to discard pile
+		card.move_to(tbl.discard_pile_marker.global_position, 0.2, false)
+		await get_tree().create_timer(0.25).timeout
+		# Update discard visual
+		if card_data:
+			tbl.deck_manager.add_to_discard(card_data)
+			if tbl.discard_pile_visual:
+				tbl.discard_pile_visual.set_count(tbl.deck_manager.discard_pile.size())
+				tbl.discard_pile_visual.set_top_card(card_data)
+		if is_instance_valid(card):
+			card.queue_free()
+		tbl.match_manager._unlock_matching()
+	else:
+		# Failed match — red flash + shake
+		await get_tree().create_timer(0.2).timeout
+		if not is_instance_valid(card):
+			return
+		await tbl.match_manager._shake_card(card, 0.35)
+		if not is_instance_valid(card):
+			return
+		await get_tree().create_timer(0.1).timeout
+		if not is_instance_valid(card):
+			return
+		# Slide back to original grid
+		var return_above = original_base_pos + Vector3(0, 0.4, 0)
+		card.move_to(return_above, 0.3, false)
+		await get_tree().create_timer(0.33).timeout
+		if not is_instance_valid(card):
+			return
+		# Reparent back to grid
+		if card.get_parent() != original_parent and is_instance_valid(original_parent):
+			card.get_parent().remove_child(card)
+			original_parent.add_child(card)
+		card.rotation = Vector3.ZERO
+		card.position = original_parent.to_local(original_base_pos) + Vector3(0, 0.4, 0)
+		card.base_position = original_base_pos
+		# Flip face-down
+		card.flip(true, 0.2)
+		await get_tree().create_timer(0.12).timeout
+		if not is_instance_valid(card):
+			return
+		# Lower to rest
+		card.move_to(original_base_pos, 0.2, false)
+		await get_tree().create_timer(0.25).timeout
+		# Penalty card animation
+		if penalty_card_id >= 0:
+			_animate_penalty_card_local(actor_seat, penalty_card_id)
+		tbl.match_manager._unlock_matching()
+
+func _animate_penalty_card_local(target_seat: int, penalty_card_id: int) -> void:
+	"""Animate a penalty card from draw pile to the target player's penalty slot."""
+	if _round_controller == null:
+		return
+	var tbl = _round_controller.table
+	var card_data = tbl.deck_manager.find_card_data_by_id(penalty_card_id)
+	if card_data == null:
+		return
+	# Deal the card from draw pile (host has real data; clients use find_card_data_by_id)
+	if multiplayer.is_server():
+		tbl.deck_manager.deal_card()  # Pop from draw pile on host
+	var grid = tbl.player_grids[target_seat]
+	var penalty_card = tbl.card_scene.instantiate()
+	tbl.add_child(penalty_card)
+	penalty_card.global_position = tbl.draw_pile_marker.global_position
+	penalty_card.initialize(card_data, false)
+	penalty_card.is_interactable = false
+	penalty_card.card_clicked.connect(tbl._on_card_clicked)
+	penalty_card.card_right_clicked.connect(tbl._on_card_right_clicked)
+	penalty_card.owner_seat_id = target_seat
+	if tbl.draw_pile_visual:
+		tbl.draw_pile_visual.set_count(tbl.deck_manager.get_draw_pile_count())
+	var target_slot = mini(grid.penalty_cards.size(), grid.penalty_positions.size() - 1)
+	var target_global = grid.to_global(grid.penalty_positions[target_slot])
+	penalty_card.move_to(target_global, 0.5, false)
+	await get_tree().create_timer(0.55).timeout
+	if not is_instance_valid(penalty_card):
+		return
+	if penalty_card.get_parent():
+		penalty_card.get_parent().remove_child(penalty_card)
+	grid.add_penalty_card(penalty_card, false)
+
+## Broadcast a card removal from a host-side match (not via client RPC).
+func broadcast_host_match_card_removed(card_seat: int, card_slot: int, is_penalty: bool) -> void:
+	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
+		return
+	_client_match_card_removed.rpc(card_seat, card_slot, is_penalty)
+
 @rpc("authority", "call_remote", "reliable")
 func _client_match_card_removed(card_seat: int, card_slot: int, card_is_penalty: bool) -> void:
+	# Legacy: still used for non-animated removal if needed
 	if _round_controller == null:
 		return
 	var tbl = _round_controller.table
@@ -988,13 +1187,6 @@ func _client_match_card_removed(card_seat: int, card_slot: int, card_is_penalty:
 			grid.cards[card_slot] = null
 	if card and is_instance_valid(card):
 		card.queue_free()
-	_log("Match card removed on client: seat=%d slot=%d penalty=%s" % [card_seat, card_slot, card_is_penalty])
-
-## Broadcast a card removal from a host-side match (not via client RPC).
-func broadcast_host_match_card_removed(card_seat: int, card_slot: int, is_penalty: bool) -> void:
-	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
-		return
-	_client_match_card_removed.rpc(card_seat, card_slot, is_penalty)
 
 ## Broadcast a penalty card added during a host-side failed match.
 func broadcast_host_penalty_card_added(seat_idx: int, card_id: int) -> void:
@@ -1179,6 +1371,12 @@ func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
 	var tbl = _round_controller.table
 	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
 	var discard_pos: Vector3 = tbl.discard_pile_marker.global_position
+	# Update discard pile visual immediately so it shows the card right away
+	if card_data:
+		tbl.deck_manager.add_to_discard(card_data)
+		if tbl.discard_pile_visual:
+			tbl.discard_pile_visual.set_count(tbl.deck_manager.discard_pile.size())
+			tbl.discard_pile_visual.set_top_card(card_data)
 	# If we have a held card from the draw, animate that card to discard
 	if _opponent_held_card and is_instance_valid(_opponent_held_card):
 		var held := _opponent_held_card
@@ -1190,7 +1388,8 @@ func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
 		await get_tree().create_timer(0.3).timeout
 		held.flip(true, 0.3)
 		await get_tree().create_timer(0.6).timeout
-		held.queue_free()
+		if is_instance_valid(held):
+			held.queue_free()
 	else:
 		# No held card — create one directly at discard position (shows card being placed)
 		if card_data == null:
@@ -1202,7 +1401,8 @@ func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
 		card.global_position = discard_pos + Vector3(0, 0.3, 0)
 		card.move_to(discard_pos, 0.25, false)
 		await get_tree().create_timer(0.6).timeout
-		card.queue_free()
+		if is_instance_valid(card):
+			card.queue_free()
 
 ## Send swap animation to all non-acting peers after any player swaps drawn card into their grid.
 func broadcast_opponent_swap(acting_seat_idx: int, slot: int, is_penalty: bool, discarded_card_id: int) -> void:
