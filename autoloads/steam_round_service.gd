@@ -176,7 +176,7 @@ func client_request_viewing_ready() -> void:
 	var ready_count := GameManager.get_ready_count()
 	_log("Viewing ready from seat %d — %d/%d ready" % [seat_idx, ready_count, _round_controller.table.num_players])
 	if GameManager.are_all_players_ready():
-		await get_tree().create_timer(0.5).timeout
+		await get_tree().create_timer(0.2).timeout
 		_client_begin_playing_phase.rpc()
 
 @rpc("authority", "call_local", "reliable")
@@ -228,7 +228,41 @@ func _client_set_drawn_card(seat_idx: int, card_id: int) -> void:
 	if card_data == null:
 		push_warning("SteamRoundService: _client_set_drawn_card — card_id %d not found" % card_id)
 		return
-	# Create the card node at the draw pile
+
+	# Optimistic path: client already started a face-down animation on click.
+	# Apply the real identity and schedule the flip based on elapsed time so the
+	# reveal fires at exactly the right moment without restarting the animation.
+	if tbl.drawn_card and is_instance_valid(tbl.drawn_card) and tbl.drawn_card.card_data.card_id == -999:
+		var card: Card3D = tbl.drawn_card
+		card.initialize(card_data, false)  # Apply identity; card is still face-down mid-flight
+		var elapsed: float = Time.get_ticks_msec() * 0.001 - tbl._optimistic_draw_start_time
+		var remaining_move := maxf(0.0, 0.65 - elapsed)
+		await get_tree().create_timer(remaining_move).timeout
+		if not is_instance_valid(card):
+			return
+		card.flip(true, 0.35)
+		await get_tree().create_timer(0.4).timeout
+		tbl.view_helper.tilt_card_towards_viewer(card, false)
+		await get_tree().create_timer(0.25).timeout
+		if not is_instance_valid(card):
+			return
+		tbl.is_drawing = false
+		if tbl.discard_pile_visual:
+			tbl.discard_pile_visual.set_interactive(true)
+		var grid_opt: PlayerGrid = tbl.player_grids[seat_idx]
+		for i in range(4):
+			var c: Card3D = grid_opt.get_card_at(i)
+			if c:
+				c.is_interactable = true
+		for pc: Card3D in grid_opt.penalty_cards:
+			pc.is_interactable = true
+		tbl.turn_ui.update_action("Click your card to swap, OR click discard pile to use ability")
+		tbl.turn_ui.show_card_info(card_data)
+		_log("Drawn card identity applied to optimistic card: %s" % card_data.get_short_name())
+		return
+
+	# Fallback path: no optimistic card (e.g. RPC arrived before click registered).
+	# Create the card node at the draw pile and run the full animation.
 	var card := tbl.card_scene.instantiate() as Card3D
 	tbl.add_child(card)
 	var top_offset := Vector3(0, tbl.draw_pile_visual.card_count * 0.01 if tbl.draw_pile_visual else 0.0, 0)
@@ -254,12 +288,12 @@ func _client_set_drawn_card(seat_idx: int, card_id: int) -> void:
 		tbl.draw_pile_visual.set_interactive(false)
 	if tbl.discard_pile_visual:
 		tbl.discard_pile_visual.set_interactive(true)
-	var grid = tbl.player_grids[seat_idx]
+	var grid: PlayerGrid = tbl.player_grids[seat_idx]
 	for i in range(4):
-		var c = grid.get_card_at(i)
+		var c: Card3D = grid.get_card_at(i)
 		if c:
 			c.is_interactable = true
-	for pc in grid.penalty_cards:
+	for pc: Card3D in grid.penalty_cards:
 		pc.is_interactable = true
 	tbl.turn_ui.update_action("Click your card to swap, OR click discard pile to use ability")
 	tbl.turn_ui.show_card_info(card_data)

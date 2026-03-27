@@ -66,6 +66,7 @@ var selected_card: Card3D = null
 var drawn_card: Card3D = null
 var is_player_turn: bool = false
 var is_drawing: bool = false  # Prevent multiple draws per turn
+var _optimistic_draw_start_time: float = 0.0  # Timestamp when optimistic draw animation began
 
 # Initial viewing phase state
 var initial_view_cards: Dictionary = {}  # player_idx -> [card1, card2]
@@ -452,10 +453,14 @@ func _on_card_clicked(card: Card3D) -> void:
 				var slot_info := _get_card_slot_info(card)
 				if slot_info.slot >= 0:
 					SteamRoundService.client_request_ability_select.rpc_id(1, card.owner_seat_id, slot_info.slot, slot_info.is_penalty)
-					# For multi-step abilities (BLIND_SWAP, LOOK_AND_SWAP): show local visual feedback
 					var ab_type := ability_manager.current_ability
 					if ab_type == CardData.AbilityType.BLIND_SWAP or ab_type == CardData.AbilityType.LOOK_AND_SWAP:
+						# Multi-step: full local animation (elevation + highlight)
 						ability_manager.handle_ability_target_selection(card)
+					elif ab_type == CardData.AbilityType.LOOK_OWN or ab_type == CardData.AbilityType.LOOK_OPPONENT:
+						# Single-target: instant highlight so the click feels responsive
+						card.set_highlighted(true, true)
+						card.elevate(0.15, 0.12)
 				return
 			# Client: route swap to host via RPC; do local visual swap immediately
 			if drawn_card != null:
@@ -480,9 +485,18 @@ func _on_card_right_clicked(card: Card3D) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		var slot_info := _get_card_slot_info(card)
 		if slot_info.slot >= 0:
+			# Optimistic: lift card to signal intent; auto-lower if host rejects
+			card.elevate(0.15, 0.12)
+			_reset_match_elevation_after_timeout(card)
 			SteamRoundService.client_request_match.rpc_id(1, card.owner_seat_id, slot_info.slot, slot_info.is_penalty)
 		return
 	round_controller.request_match(local_seat_index, card)
+
+func _reset_match_elevation_after_timeout(card: Card3D) -> void:
+	"""Lower an optimistically-elevated match card if the host never confirms."""
+	await get_tree().create_timer(1.5).timeout
+	if is_instance_valid(card) and not card.is_queued_for_deletion():
+		card.elevate(0.0, 0.15)
 
 func _on_discard_pile_clicked(_pile: CardPile) -> void:
 	"""Handle discard pile click - play card to discard and use ability"""
@@ -502,12 +516,46 @@ func _on_discard_pile_clicked(_pile: CardPile) -> void:
 
 func _on_draw_pile_clicked(_pile: CardPile) -> void:
 	"""Handle draw pile click - draw a card"""
-	# Hide knock buttons once player starts drawing
 	knock_manager.hide_all_buttons()
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		# Optimistic: immediately start face-down pick-up animation so the player
+		# sees instant feedback. Card identity arrives from host mid-animation.
+		if not is_drawing and drawn_card == null and is_player_turn:
+			is_drawing = true
+			var pending_data := CardData.new()
+			pending_data.card_id = -999  # Sentinel: identity pending from host
+			var card := card_scene.instantiate() as Card3D
+			add_child(card)
+			var top_offset := Vector3(0, draw_pile_visual.card_count * 0.01 if draw_pile_visual else 0.0, 0)
+			card.global_position = draw_pile_marker.global_position + top_offset
+			card.initialize(pending_data, false)
+			card.is_interactable = false
+			card.card_clicked.connect(_on_card_clicked)
+			card.card_right_clicked.connect(_on_card_right_clicked)
+			var view_pos := view_helper.get_card_view_position()
+			var view_rot := view_helper.get_card_view_rotation()
+			card.global_rotation = Vector3(0, view_rot, 0)
+			card.move_to(view_pos, 0.6, false)
+			drawn_card = card
+			_optimistic_draw_start_time = Time.get_ticks_msec() * 0.001
+			if draw_pile_visual:
+				draw_pile_visual.set_interactive(false)
+				draw_pile_visual.set_count(draw_pile_visual.card_count - 1)
+			_start_optimistic_draw_timeout()
 		SteamRoundService.client_request_draw.rpc_id(1)
 	else:
 		await round_controller.request_draw(local_seat_index)
+
+func _start_optimistic_draw_timeout() -> void:
+	"""Clean up the optimistic draw card if the host never responds within 2 s."""
+	await get_tree().create_timer(2.0).timeout
+	if drawn_card and is_instance_valid(drawn_card) and drawn_card.card_data.card_id == -999:
+		drawn_card.queue_free()
+		drawn_card = null
+		is_drawing = false
+		if draw_pile_visual:
+			draw_pile_visual.set_interactive(true)
+			draw_pile_visual.set_count(draw_pile_visual.card_count + 1)
 
 func _on_queen_swap_chosen() -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():

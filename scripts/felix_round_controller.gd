@@ -78,11 +78,8 @@ func request_draw(actor_seat_id: int) -> bool:
 		return false
 	await table.turn_manager.handle_draw_card()
 	sync_runtime_state()
-	if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and table.drawn_card:
-		# Notify the acting client of their drawn card's identity
-		SteamRoundService.notify_client_draw(actor_seat_id, table.drawn_card.card_data.card_id)
-		# Show a face-down draw animation to all non-acting peers
-		SteamRoundService.broadcast_opponent_draw(actor_seat_id)
+	# notify_client_draw and broadcast_opponent_draw are sent earlier in draw_card_from_pile
+	# so clients never wait for the full host animation before seeing the draw.
 	return table.drawn_card != null
 
 func request_swap(actor_seat_id: int, target_card: Card3D) -> bool:

@@ -186,7 +186,13 @@ func draw_card_from_pile() -> Card3D:
 	if not card_data:
 		print("Draw pile is empty!")
 		return null
-	
+
+	# Notify clients immediately — before any animation so they don't wait 1.3s
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var actor := GameManager.current_player_index
+		SteamRoundService.notify_client_draw(actor, card_data.card_id)
+		SteamRoundService.broadcast_opponent_draw(actor)
+
 	# Create the card at the top of the draw pile stack
 	var card = table.card_scene.instantiate()
 	table.add_child(card)
