@@ -64,6 +64,7 @@ func _ready() -> void:
 	_setup_movement_ui()
 	SteamMovementService.player_stood.connect(_on_player_stood)
 	SteamMovementService.player_sat.connect(_on_player_sat)
+	SteamMovementService.position_updated.connect(_on_remote_position_updated)
 	_spawn_all_player_bodies()
 
 func _connect_room_service() -> void:
@@ -269,9 +270,26 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
 		_toggle_debug_overlay()
 
-func _process(_delta: float) -> void:
+var _sync_timer: float = 0.0
+const SYNC_INTERVAL: float = 0.05  # 20 updates/sec
+
+func _process(delta: float) -> void:
 	if _debug_visible:
 		_update_debug_overlay()
+	# Broadcast local body position to all peers
+	if is_standing and local_body != null and multiplayer.has_multiplayer_peer():
+		_sync_timer += delta
+		if _sync_timer >= SYNC_INTERVAL:
+			_sync_timer = 0.0
+			var pos := local_body.global_position
+			SteamMovementService.sync_body_position.rpc(
+				local_seat_index, pos.x, pos.y, pos.z, local_body.rotation.y
+			)
+
+func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float) -> void:
+	var body: PlayerBody = player_bodies.get(seat_index)
+	if body and not body.is_local:
+		body.apply_remote_state(pos, rot_y)
 
 func _build_debug_overlay() -> void:
 	_debug_overlay = CanvasLayer.new()
@@ -400,18 +418,14 @@ func _spawn_all_player_bodies() -> void:
 		var color := _get_seat_color(room_state, seat)
 
 		var body: PlayerBody = player_body_scene.instantiate()
-		# Name by seat_index so both peers have the same node path
 		body.name = "LobbyBody_Seat%d" % seat_idx
-		# Remove MultiplayerSynchronizer before adding to tree —
-		# it triggers path registration immediately and the remote peer
-		# may not have matching nodes yet. Re-add after a delay.
+		# Remove MultiplayerSynchronizer — lobby uses RPC-based position sync
 		var sync_node := body.get_node_or_null("MultiplayerSynchronizer")
 		if sync_node:
 			body.remove_child(sync_node)
 			sync_node.queue_free()
 		add_child(body)
 		body.setup(seat_idx, body_peer_id, seat.display_name, color, body_is_local)
-		_add_sync_delayed(body)
 		body.request_sit.connect(_on_body_request_sit)
 		if body_is_local:
 			body.interaction_label = interaction_label
@@ -420,25 +434,6 @@ func _spawn_all_player_bodies() -> void:
 
 	# Initialize occupied seat tracking
 	SteamMovementService.init_occupied_seats(init_seats)
-
-func _add_sync_delayed(body: PlayerBody) -> void:
-	# Wait for remote peer to create matching body nodes
-	await get_tree().create_timer(1.0).timeout
-	if not is_instance_valid(body) or not body.is_inside_tree():
-		return
-	# Don't add if one already exists (e.g. body was re-created)
-	if body.get_node_or_null("MultiplayerSynchronizer"):
-		return
-	var config := SceneReplicationConfig.new()
-	config.add_property(NodePath(".:position"))
-	config.property_set_replication_mode(NodePath(".:position"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
-	config.add_property(NodePath(".:rotation"))
-	config.property_set_replication_mode(NodePath(".:rotation"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
-	var sync := MultiplayerSynchronizer.new()
-	sync.name = "MultiplayerSynchronizer"
-	sync.replication_config = config
-	sync.replication_interval = 0.05
-	body.add_child(sync)
 
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:

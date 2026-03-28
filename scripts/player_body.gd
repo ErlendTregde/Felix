@@ -19,6 +19,12 @@ var mouse_rotation: Vector2 = Vector2.ZERO  # x = yaw, y = pitch
 var player_display_name: String = ""
 var nearby_chair_seat_index: int = -1
 
+# Remote interpolation
+var _remote_target_pos: Vector3 = Vector3.ZERO
+var _remote_target_rot_y: float = 0.0
+var _has_remote_target: bool = false
+const REMOTE_LERP_SPEED: float = 12.0
+
 # Interaction prompt (created by game_table/steam_room)
 var interaction_label: Label = null
 
@@ -64,6 +70,17 @@ func set_standing(standing: bool) -> void:
 		nearby_chair_seat_index = -1
 		if interaction_label:
 			interaction_label.visible = false
+
+func apply_remote_state(pos: Vector3, rot_y: float) -> void:
+	_remote_target_pos = pos
+	_remote_target_rot_y = rot_y
+	_has_remote_target = true
+
+func _process(delta: float) -> void:
+	# Smoothly interpolate remote bodies toward their latest synced position
+	if not is_local and _has_remote_target and is_standing:
+		global_position = global_position.lerp(_remote_target_pos, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
+		rotation.y = lerp_angle(rotation.y, _remote_target_rot_y, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
 
 func activate_fps_camera() -> void:
 	"""Make this body's FPS camera the active viewport camera. Only call for local player."""

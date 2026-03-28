@@ -197,6 +197,7 @@ func _ready() -> void:
 	# Connect movement service signals
 	SteamMovementService.player_stood.connect(_on_player_stood)
 	SteamMovementService.player_sat.connect(_on_player_sat)
+	SteamMovementService.position_updated.connect(_on_remote_position_updated)
 
 	# Connect game state signals for round end
 	Events.game_state_changed.connect(_on_game_state_changed)
@@ -1110,6 +1111,11 @@ func _spawn_player_bodies() -> void:
 
 		var body: PlayerBody = player_body_scene.instantiate()
 		body.name = "PlayerBody_Seat%d" % i
+		# Remove MultiplayerSynchronizer — using RPC-based position sync instead
+		var sync_node := body.get_node_or_null("MultiplayerSynchronizer")
+		if sync_node:
+			body.remove_child(sync_node)
+			sync_node.queue_free()
 		add_child(body)
 		var body_peer_id := _get_peer_id_for_seat(i)
 		var body_is_local := (i == local_seat_index)
@@ -1227,3 +1233,23 @@ func _on_player_sat(seat_index: int, target_seat: int) -> void:
 func _show_leave_seat_ui() -> void:
 	if leave_seat_container and not is_local_player_standing and not _is_round_active():
 		leave_seat_container.visible = true
+
+var _sync_timer: float = 0.0
+const SYNC_INTERVAL: float = 0.05
+
+func _process(delta: float) -> void:
+	if is_local_player_standing and multiplayer.has_multiplayer_peer():
+		var body: PlayerBody = player_bodies.get(local_seat_index)
+		if body:
+			_sync_timer += delta
+			if _sync_timer >= SYNC_INTERVAL:
+				_sync_timer = 0.0
+				var pos := body.global_position
+				SteamMovementService.sync_body_position.rpc(
+					local_seat_index, pos.x, pos.y, pos.z, body.rotation.y
+				)
+
+func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float) -> void:
+	var body: PlayerBody = player_bodies.get(seat_index)
+	if body and not body.is_local:
+		body.apply_remote_state(pos, rot_y)
