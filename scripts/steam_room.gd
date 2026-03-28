@@ -138,7 +138,7 @@ func _refresh_buttons(room_state: RoomState) -> void:
 	if show_code:
 		lobby_code_label.text = "Lobby ID: %d" % room_state.lobby_id
 
-func _refresh_seat_visuals(room_state: RoomState) -> void:
+func _refresh_seat_visuals(_room_state: RoomState) -> void:
 	for visual in seat_visuals:
 		if is_instance_valid(visual):
 			visual.queue_free()
@@ -152,22 +152,30 @@ func _refresh_seat_visuals(room_state: RoomState) -> void:
 		Vector3(4, card_y, 0)
 	]
 
-	for seat in room_state.seat_states:
-		if not seat.is_occupied() or seat.seat_index >= positions.size():
+	# Build visuals from player_bodies (tracks actual seat positions after switches)
+	for seat_idx in player_bodies:
+		var pb: PlayerBody = player_bodies[seat_idx]
+		if not is_instance_valid(pb):
 			continue
-		# Skip seated visual if this player is standing (their PlayerBody is visible instead)
-		if SteamMovementService.is_seat_standing(seat.seat_index):
+		# Skip standing players (their PlayerBody is visible instead)
+		if pb.is_standing:
 			continue
-		var grid_pos: Vector3 = positions[seat.seat_index]
-		var dir_away := Vector3(grid_pos.x, 0, grid_pos.z).normalized()
-		var seat_pos := grid_pos + dir_away * 1.5
-		var chair_pos := grid_pos + dir_away * 3.0
-		chair_pos.y = seat_pos.y
-		var color := _get_seat_color(room_state, seat)
+		# Skip local player (they see through the seated camera)
+		if pb.is_local:
+			continue
+		# Use the body's current seat_index for positioning
+		var actual_seat: int = pb.seat_index
+		if actual_seat < 0 or actual_seat >= positions.size():
+			continue
 
-		# Skip local player — they see through the seated camera, not a table avatar
-		if seat.seat_index == local_seat_index:
-			continue
+		var grid_pos: Vector3 = positions[actual_seat]
+		var dir_away := Vector3(grid_pos.x, 0, grid_pos.z).normalized()
+		var chair_pos := grid_pos + dir_away * 3.0
+		chair_pos.y = grid_pos.y
+		var color := Color(0.4, 0.6, 0.4)
+		var mat_override = pb.avatar_mesh.material_override
+		if mat_override is StandardMaterial3D:
+			color = mat_override.albedo_color
 
 		var body_root := Node3D.new()
 		add_child(body_root)
@@ -394,8 +402,15 @@ func _spawn_all_player_bodies() -> void:
 		var body: PlayerBody = player_body_scene.instantiate()
 		# Name by seat_index so both peers have the same node path
 		body.name = "LobbyBody_Seat%d" % seat_idx
+		# Disable sync until remote peer has created matching nodes
+		var sync_node := body.get_node_or_null("MultiplayerSynchronizer")
+		if sync_node is MultiplayerSynchronizer:
+			sync_node.public_visibility = false
 		add_child(body)
 		body.setup(seat_idx, body_peer_id, seat.display_name, color, body_is_local)
+		# Enable sync after a brief delay to let remote peer create matching bodies
+		if sync_node is MultiplayerSynchronizer:
+			_enable_sync_delayed(sync_node)
 		body.request_sit.connect(_on_body_request_sit)
 		if body_is_local:
 			body.interaction_label = interaction_label
@@ -405,6 +420,11 @@ func _spawn_all_player_bodies() -> void:
 	# Initialize occupied seat tracking
 	SteamMovementService.init_occupied_seats(init_seats)
 
+func _enable_sync_delayed(sync_node: MultiplayerSynchronizer) -> void:
+	await get_tree().create_timer(0.5).timeout
+	if is_instance_valid(sync_node):
+		sync_node.public_visibility = true
+
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:
 		return
@@ -413,6 +433,7 @@ func _on_leave_seat_pressed() -> void:
 		SteamMovementService.client_request_stand.rpc_id(1)
 	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		SteamMovementService._standing_seats[local_seat_index] = true
+		SteamMovementService._occupied_seats.erase(local_seat_index)
 		SteamMovementService._client_player_stood.rpc(local_seat_index)
 		SteamMovementService._client_player_stood(local_seat_index)
 	else:
@@ -424,11 +445,12 @@ func _on_body_request_sit(target_seat: int) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		SteamMovementService.client_request_sit.rpc_id(1, target_seat)
 	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
-		# Host validates occupancy locally
 		if SteamMovementService.is_seat_occupied(target_seat):
 			return
 		SteamMovementService._standing_seats[local_seat_index] = false
 		SteamMovementService._occupied_seats[target_seat] = true
+		var original := SteamMovementService._get_original_seat_for_current(local_seat_index)
+		SteamMovementService._current_seat[original] = target_seat
 		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
 		SteamMovementService._client_player_sat(local_seat_index, target_seat)
 	else:

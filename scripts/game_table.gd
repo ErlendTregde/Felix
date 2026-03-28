@@ -1145,6 +1145,7 @@ func _on_leave_seat_pressed() -> void:
 	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		# Host stands directly
 		SteamMovementService._standing_seats[local_seat_index] = true
+		SteamMovementService._occupied_seats.erase(local_seat_index)
 		SteamMovementService._client_player_stood.rpc(local_seat_index)
 		SteamMovementService._client_player_stood(local_seat_index)
 	else:
@@ -1161,6 +1162,8 @@ func _on_body_request_sit(target_seat: int) -> void:
 			return
 		SteamMovementService._standing_seats[local_seat_index] = false
 		SteamMovementService._occupied_seats[target_seat] = true
+		var original := SteamMovementService._get_original_seat_for_current(local_seat_index)
+		SteamMovementService._current_seat[original] = target_seat
 		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
 		SteamMovementService._client_player_sat(local_seat_index, target_seat)
 	else:
