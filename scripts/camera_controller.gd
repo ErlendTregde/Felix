@@ -108,8 +108,8 @@ func _reset_look_offsets() -> void:
 func set_active(enabled: bool) -> void:
 	set_process(enabled)
 	set_process_input(enabled)
-	if camera:
-		camera.current = enabled
+	if camera and enabled:
+		camera.make_current()
 
 func _store_current_transform_as_base() -> void:
 	_base_transform = camera.transform

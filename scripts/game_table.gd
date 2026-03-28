@@ -1109,7 +1109,8 @@ func _spawn_player_bodies() -> void:
 		body.name = "PlayerBody_%d" % i
 		add_child(body)
 		var body_peer_id := _get_peer_id_for_seat(i)
-		body.setup(i, body_peer_id, ctx.display_name, players[i].player_color)
+		var body_is_local := (i == local_seat_index)
+		body.setup(i, body_peer_id, ctx.display_name, players[i].player_color, body_is_local)
 		body.request_sit.connect(_on_body_request_sit)
 		body.request_stand.connect(_on_body_request_stand)
 		body.interaction_label = interaction_label
@@ -1163,16 +1164,17 @@ func _on_player_stood(seat_index: int) -> void:
 	body.spawn_at_chair(chair_pos, face_dir)
 	body.set_standing(true)
 
+	# Only switch camera for the LOCAL player
 	if seat_index == local_seat_index:
 		is_local_player_standing = true
-		# Switch to FPS camera
-		camera_controller.set_active(false)
-		body.fps_camera.current = true
+		# Disable seated camera processing (don't touch .current yet)
+		camera_controller.set_process(false)
+		camera_controller.set_process_input(false)
+		# Make the FPS camera the active viewport camera
+		body.activate_fps_camera()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		# Hide leave seat button, show nothing (interaction prompt handled by body)
 		if leave_seat_container:
 			leave_seat_container.visible = false
-		# Hide turn UI elements while standing
 		if turn_ui:
 			turn_ui.hide_ui()
 
@@ -1181,16 +1183,18 @@ func _on_player_sat(seat_index: int, _target_seat: int) -> void:
 	if body:
 		body.set_standing(false)
 
+	# Only switch camera for the LOCAL player
 	if seat_index == local_seat_index:
 		is_local_player_standing = false
-		# Switch back to seated camera
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		if body:
-			body.fps_camera.current = false
-		camera_controller.set_active(true)
+			body.deactivate_fps_camera()
+		# Restore seated camera
+		camera_controller.set_process(true)
+		camera_controller.set_process_input(true)
+		camera_controller.camera.make_current()
 		_apply_local_seat_camera_view()
 		_apply_local_seat_lighting()
-		# Show leave seat button again
 		if leave_seat_container:
 			leave_seat_container.visible = true
 

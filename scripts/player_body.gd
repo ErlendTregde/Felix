@@ -4,7 +4,6 @@ class_name PlayerBody
 const MOVE_SPEED := 5.0
 const MOUSE_SENSITIVITY := 0.002
 const GRAVITY := 20.0
-const EYE_HEIGHT := 1.6
 
 @export var seat_index: int = -1
 @export var peer_id: int = 1
@@ -15,11 +14,12 @@ const EYE_HEIGHT := 1.6
 @onready var interaction_ray: RayCast3D = $FPSCamera/InteractionRay
 
 var is_standing: bool = false
+var is_local: bool = false  # Whether this body belongs to the local player
 var mouse_rotation: Vector2 = Vector2.ZERO  # x = yaw, y = pitch
 var player_display_name: String = ""
 var nearby_chair_seat_index: int = -1
 
-# Interaction prompt (created by game_table)
+# Interaction prompt (created by game_table/steam_room)
 var interaction_label: Label = null
 
 signal request_sit(seat_index: int)
@@ -29,10 +29,11 @@ func _ready() -> void:
 	# Start hidden/inactive
 	set_standing(false)
 
-func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: Color) -> void:
+func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: Color, p_is_local: bool) -> void:
 	seat_index = p_seat_index
 	peer_id = p_peer_id
 	player_display_name = p_display_name
+	is_local = p_is_local
 	set_multiplayer_authority(peer_id)
 
 	name_label.text = p_display_name
@@ -42,28 +43,37 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 	mat.albedo_color = p_color
 	avatar_mesh.material_override = mat
 
-	# Local player: hide avatar (first person), remote: hide FPS camera
-	if is_multiplayer_authority():
+	# Local player: hide avatar (first person view — you don't see yourself)
+	if is_local:
 		avatar_mesh.visible = false
 		name_label.visible = false
-	else:
-		fps_camera.current = false
 
 func set_standing(standing: bool) -> void:
 	is_standing = standing
 	visible = standing
-	set_physics_process(standing and is_multiplayer_authority())
-	set_process_input(standing and is_multiplayer_authority())
+	# Only the local player processes input and physics
+	set_physics_process(standing and is_local)
+	set_process_input(standing and is_local)
 
 	if standing:
-		# Show avatar for remote players
-		if not is_multiplayer_authority():
+		# Show avatar for remote players only
+		if not is_local:
 			avatar_mesh.visible = true
 			name_label.visible = true
 	else:
 		nearby_chair_seat_index = -1
 		if interaction_label:
 			interaction_label.visible = false
+
+func activate_fps_camera() -> void:
+	"""Make this body's FPS camera the active viewport camera. Only call for local player."""
+	if fps_camera:
+		fps_camera.make_current()
+
+func deactivate_fps_camera() -> void:
+	"""Release this body's FPS camera. Does NOT pick a replacement — caller must do that."""
+	if fps_camera:
+		fps_camera.current = false
 
 func spawn_at_chair(chair_position: Vector3, face_direction: Vector3) -> void:
 	# Position at floor level, offset outward from the chair
@@ -76,12 +86,12 @@ func spawn_at_chair(chair_position: Vector3, face_direction: Vector3) -> void:
 		rotation.y = yaw
 		mouse_rotation.x = yaw
 
-	if is_multiplayer_authority():
+	if is_local:
 		fps_camera.rotation.x = 0.0
 		mouse_rotation.y = 0.0
 
 func _input(event: InputEvent) -> void:
-	if not is_standing or not is_multiplayer_authority():
+	if not is_standing or not is_local:
 		return
 
 	# Escape toggles mouse capture
@@ -109,7 +119,7 @@ func _input(event: InputEvent) -> void:
 		request_sit.emit(nearby_chair_seat_index)
 
 func _physics_process(delta: float) -> void:
-	if not is_standing or not is_multiplayer_authority():
+	if not is_standing or not is_local:
 		return
 
 	# Gravity

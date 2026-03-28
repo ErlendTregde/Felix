@@ -356,8 +356,10 @@ func _spawn_local_player_body() -> void:
 	player_body = player_body_scene.instantiate()
 	player_body.name = "LocalPlayerBody"
 	add_child(player_body)
-	# In lobby, authority is always local (peer 1)
-	player_body.setup(0, 1, SteamPlatformService.get_local_display_name(), Color(0.4, 0.6, 0.4))
+	# In lobby, use the local peer's unique_id so is_multiplayer_authority() works,
+	# but more importantly pass is_local=true so movement always works.
+	var local_peer := multiplayer.get_unique_id()
+	player_body.setup(0, local_peer, SteamPlatformService.get_local_display_name(), Color(0.4, 0.6, 0.4), true)
 	player_body.request_sit.connect(_on_body_request_sit)
 	player_body.interaction_label = interaction_label
 
@@ -375,9 +377,10 @@ func _on_leave_seat_pressed() -> void:
 	player_body.spawn_at_chair(chair_pos, face_dir)
 	player_body.set_standing(true)
 
-	# Switch camera
-	camera_controller.set_active(false)
-	player_body.fps_camera.current = true
+	# Switch camera: disable seated, then make FPS current
+	camera_controller.set_process(false)
+	camera_controller.set_process_input(false)
+	player_body.activate_fps_camera()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	leave_seat_container.visible = false
 
@@ -386,9 +389,12 @@ func _on_body_request_sit(_target_seat: int) -> void:
 		return
 	is_standing = false
 	player_body.set_standing(false)
-	player_body.fps_camera.current = false
+	player_body.deactivate_fps_camera()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	camera_controller.set_active(true)
+	# Restore seated camera
+	camera_controller.set_process(true)
+	camera_controller.set_process_input(true)
+	camera_controller.camera.make_current()
 	var room_state := SteamRoomService.get_room_state()
 	_apply_local_view(room_state)
 	leave_seat_container.visible = true
