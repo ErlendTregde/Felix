@@ -175,7 +175,7 @@ func _ready() -> void:
 	leave_seat_ui = leave_seat_ui_scene.instantiate()
 	add_child(leave_seat_ui)
 	leave_seat_container = leave_seat_ui.get_node("Container")
-	leave_seat_container.visible = true
+	leave_seat_container.visible = false  # Hidden until round ends (can't leave during active round)
 	var leave_btn = leave_seat_ui.get_node("Container/LeaveSeatButton")
 	if leave_btn:
 		leave_btn.pressed.connect(_on_leave_seat_pressed)
@@ -367,9 +367,6 @@ func setup_players(count: int) -> void:
 		num_players = clampi(count, 1, 4)
 	_game_to_table = _build_game_to_table_mapping(num_players)
 	local_seat_index = _resolve_local_seat_index(num_players)
-	# Reset movement service AFTER reading lobby seat data for the mapping.
-	# The game's movement system uses game seats (0..N-1), not lobby table positions.
-	SteamMovementService.reset()
 	debug_view_seat_override = _sanitize_debug_view_seat_override(num_players)
 	seat_contexts.clear()
 	_rebuild_participant_profiles(num_players)
@@ -378,6 +375,9 @@ func setup_players(count: int) -> void:
 		seat_assignments = _build_seat_assignments_from_room_state(num_players)
 	else:
 		seat_assignments = _build_local_participant_seat_assignment(num_players, local_seat_index)
+	# Reset movement service AFTER reading all lobby seat data.
+	# The game's movement system uses game seats (0..N-1), not lobby table positions.
+	SteamMovementService.reset()
 
 	# Player positions around the round table (surface Y set dynamically)
 	var card_y := table_surface_y + 0.01  # Cards sit slightly above table surface
