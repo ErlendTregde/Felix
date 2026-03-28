@@ -354,11 +354,15 @@ func _spawn_local_player_body() -> void:
 	if player_body != null:
 		return
 	player_body = player_body_scene.instantiate()
-	player_body.name = "LocalPlayerBody"
-	add_child(player_body)
-	# In lobby, use the local peer's unique_id so is_multiplayer_authority() works,
-	# but more importantly pass is_local=true so movement always works.
+	# Use a unique name per peer so MultiplayerSynchronizer paths don't collide
 	var local_peer := multiplayer.get_unique_id()
+	player_body.name = "LobbyBody_%d" % local_peer
+	add_child(player_body)
+	# Disable the MultiplayerSynchronizer — lobby movement is local only,
+	# no need to sync walking position to other peers.
+	var sync := player_body.get_node_or_null("MultiplayerSynchronizer")
+	if sync:
+		sync.queue_free()
 	player_body.setup(0, local_peer, SteamPlatformService.get_local_display_name(), Color(0.4, 0.6, 0.4), true)
 	player_body.request_sit.connect(_on_body_request_sit)
 	player_body.interaction_label = interaction_label
