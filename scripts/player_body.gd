@@ -49,10 +49,9 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 	mat.albedo_color = p_color
 	avatar_mesh.material_override = mat
 
-	# Local player: hide avatar (first person view — you don't see yourself)
+	# Local player: hide avatar mesh (first person view) but keep nametag visible
 	if is_local:
 		avatar_mesh.visible = false
-		name_label.visible = false
 
 func set_standing(standing: bool) -> void:
 	is_standing = standing
@@ -62,10 +61,10 @@ func set_standing(standing: bool) -> void:
 	set_process_input(standing and is_local)
 
 	if standing:
-		# Show avatar for remote players only
+		# Show avatar for remote players, nametag for everyone
+		name_label.visible = true
 		if not is_local:
 			avatar_mesh.visible = true
-			name_label.visible = true
 	else:
 		nearby_chair_seat_index = -1
 		if interaction_label:

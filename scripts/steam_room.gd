@@ -35,7 +35,6 @@ var player_bodies: Dictionary = {}  # seat_index -> PlayerBody
 var local_body: PlayerBody = null
 var local_seat_index: int = 0
 var is_standing: bool = false
-var leave_seat_container: Control = null
 var interaction_label: Label = null
 
 const CHAIR_POSITIONS: Array[Vector3] = [
@@ -50,6 +49,10 @@ const CHAIR_FACE_DIRECTIONS: Array[Vector3] = [
 	Vector3(-1, 0, 0),
 	Vector3(1, 0, 0),
 ]
+
+# Wall spawn point — players start here standing, facing inward
+const WALL_SPAWN_POS := Vector3(0, 0, -16.0)  # Near north wall
+const WALL_SPAWN_FACE := Vector3(0, 0, 1)     # Facing south (toward table)
 
 func _ready() -> void:
 	_connect_room_service()
@@ -341,23 +344,6 @@ func _update_debug_overlay() -> void:
 ## ── Movement system ──────────────────────────────────────────────────────
 
 func _setup_movement_ui() -> void:
-	# Leave seat button
-	var leave_canvas := CanvasLayer.new()
-	leave_canvas.layer = 10
-	add_child(leave_canvas)
-	leave_seat_container = Control.new()
-	leave_seat_container.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	leave_seat_container.offset_left = -80
-	leave_seat_container.offset_top = -80
-	leave_seat_container.offset_right = 80
-	leave_seat_container.offset_bottom = -20
-	leave_canvas.add_child(leave_seat_container)
-	var btn := Button.new()
-	btn.text = "Leave Seat (Q)"
-	btn.set_anchors_preset(Control.PRESET_FULL_RECT)
-	btn.pressed.connect(_on_leave_seat_pressed)
-	leave_seat_container.add_child(btn)
-
 	# Interaction prompt
 	var prompt_canvas := CanvasLayer.new()
 	prompt_canvas.layer = 10
@@ -411,9 +397,8 @@ func _spawn_all_player_bodies() -> void:
 			player_bodies.erase(seat_idx)
 
 	# Add bodies for newly occupied seats
-	var init_seats: Array = []
+	var new_bodies: Array[PlayerBody] = []
 	for seat_idx in occupied_seats:
-		init_seats.append(seat_idx)
 		if player_bodies.has(seat_idx):
 			continue  # Already spawned with correct peer_id
 		var seat: SeatState = occupied_seats[seat_idx]
@@ -435,9 +420,21 @@ func _spawn_all_player_bodies() -> void:
 			body.interaction_label = interaction_label
 			local_body = body
 		player_bodies[seat_idx] = body
+		new_bodies.append(body)
 
-	# Initialize occupied seat tracking
-	SteamMovementService.init_occupied_seats(init_seats)
+	# Spawn new bodies standing at wall (not seated), offset so they don't overlap
+	for i in new_bodies.size():
+		var body: PlayerBody = new_bodies[i]
+		var spawn_pos := WALL_SPAWN_POS + Vector3(i * 2.0 - (new_bodies.size() - 1), 0, 0)
+		body.spawn_at_chair(spawn_pos, WALL_SPAWN_FACE)
+		body.set_standing(true)
+		SteamMovementService._standing_seats[body.seat_index] = true
+		if body.is_local:
+			is_standing = true
+			camera_controller.set_process(false)
+			camera_controller.set_process_input(false)
+			body.activate_fps_camera()
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:
@@ -495,8 +492,6 @@ func _on_player_stood(seat_index: int) -> void:
 		camera_controller.set_process_input(false)
 		body.activate_fps_camera()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		if leave_seat_container:
-			leave_seat_container.visible = false
 
 func _on_player_sat(seat_index: int, target_seat: int) -> void:
 	var body := _find_body_at_seat(seat_index)
@@ -522,8 +517,6 @@ func _on_player_sat(seat_index: int, target_seat: int) -> void:
 		camera_controller.camera.make_current()
 		var room_state := SteamRoomService.get_room_state()
 		_apply_local_view(room_state)
-		if leave_seat_container:
-			leave_seat_container.visible = true
 
 ## ── Lobby actions ────────────────────────────────────────────────────────
 
