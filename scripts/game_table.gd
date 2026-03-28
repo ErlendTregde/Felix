@@ -698,12 +698,13 @@ func _client_confirm_ability_local() -> void:
 func _resolve_local_seat_index(player_count: int) -> int:
 	if local_seat_override >= 0:
 		return clampi(local_seat_override, 0, max(player_count - 1, 0))
-	# In multiplayer, use the seat assigned by SteamRoomService
+	# In multiplayer, use the seat assigned by SteamRoomService, mapped through seat switches
 	if multiplayer.has_multiplayer_peer():
 		var rs := SteamRoomService.get_room_state()
-		var seat_idx := rs.get_local_seat_index(SteamPlatformService.get_local_steam_id())
-		if seat_idx >= 0 and seat_idx < player_count:
-			return seat_idx
+		var original_seat := rs.get_local_seat_index(SteamPlatformService.get_local_steam_id())
+		var current_seat := SteamMovementService.get_current_seat(original_seat)
+		if current_seat >= 0 and current_seat < player_count:
+			return current_seat
 	return 0
 
 func _sanitize_debug_view_seat_override(player_count: int) -> int:
@@ -740,8 +741,11 @@ func _build_seat_assignments_from_room_state(player_count: int) -> Array[int]:
 	seat_assignments.resize(player_count)
 	var rs := SteamRoomService.get_room_state()
 	for seat in rs.seat_states:
-		if seat.is_occupied() and seat.seat_index < player_count:
-			seat_assignments[seat.seat_index] = seat.occupant_participant_id
+		if seat.is_occupied():
+			# Map original seat to current seat (respects lobby seat switches)
+			var current_seat := SteamMovementService.get_current_seat(seat.seat_index)
+			if current_seat < player_count:
+				seat_assignments[current_seat] = seat.occupant_participant_id
 	return seat_assignments
 
 func _build_local_participant_seat_assignment(player_count: int, desired_local_seat: int) -> Array[int]:
