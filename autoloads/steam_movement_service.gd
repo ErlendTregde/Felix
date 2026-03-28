@@ -51,6 +51,17 @@ func _get_original_seat_for_current(current: int) -> int:
 			return orig
 	return current
 
+func _get_original_seat_for_sender() -> int:
+	"""Returns the ORIGINAL (room state) seat index for the sending peer."""
+	var sender_peer := multiplayer.get_remote_sender_id()
+	var steam_id := int(State.lobby_data.peer_members.get(sender_peer, 0))
+	if steam_id == 0:
+		return -1
+	var member = SteamRoomService.room_state.get_member(steam_id)
+	if member == null:
+		return -1
+	return member.seat_index
+
 func _get_seat_index_for_sender() -> int:
 	"""Returns the CURRENT seat index for the sending peer."""
 	var sender_peer := multiplayer.get_remote_sender_id()
@@ -99,13 +110,14 @@ func client_request_sit(target_seat: int) -> void:
 	if _occupied_seats.get(target_seat, false):
 		push_warning("SteamMovementService: Seat %d is already occupied — player %d cannot sit" % [target_seat, seat_idx])
 		return
-	_log("Player at seat %d requests to sit at seat %d" % [seat_idx, target_seat])
+	var original := _get_original_seat_for_sender()
+	_log("Player at seat %d requests to sit at seat %d (original: %d)" % [seat_idx, target_seat, original])
 	_standing_seats[seat_idx] = false
 	_occupied_seats[target_seat] = true
-	# Broadcast to all clients
-	_client_player_sat.rpc(seat_idx, target_seat)
+	# Broadcast to all clients with the known original seat
+	_client_player_sat.rpc(seat_idx, target_seat, original)
 	# Apply locally on host
-	_client_player_sat(seat_idx, target_seat)
+	_client_player_sat(seat_idx, target_seat, original)
 
 # ---------------------------------------------------------------------------
 # Host -> Client RPCs
@@ -119,13 +131,13 @@ func _client_player_stood(seat_index: int) -> void:
 	player_stood.emit(seat_index)
 
 @rpc("authority", "call_remote", "reliable")
-func _client_player_sat(seat_index: int, target_seat: int) -> void:
+func _client_player_sat(seat_index: int, target_seat: int, original_seat: int = -1) -> void:
 	_standing_seats[seat_index] = false
 	_occupied_seats[target_seat] = true
-	# Track seat switch: find the original seat and update the mapping
-	var original := _get_original_seat_for_current(seat_index)
-	_current_seat[original] = target_seat
-	_log("Player at seat %d sat down at seat %d" % [seat_index, target_seat])
+	# Track seat switch using the known original seat
+	var orig := original_seat if original_seat >= 0 else _get_original_seat_for_current(seat_index)
+	_current_seat[orig] = target_seat
+	_log("Player at seat %d sat down at seat %d (original: %d)" % [seat_index, target_seat, orig])
 	player_sat.emit(seat_index, target_seat)
 
 @rpc("authority", "call_remote", "reliable")
@@ -160,13 +172,13 @@ func local_stand(seat_index: int) -> void:
 	_occupied_seats.erase(seat_index)
 	player_stood.emit(seat_index)
 
-func local_sit(seat_index: int, target_seat: int = -1) -> void:
+func local_sit(seat_index: int, target_seat: int = -1, original_seat: int = -1) -> void:
 	if target_seat < 0:
 		target_seat = seat_index
 	_standing_seats[seat_index] = false
 	_occupied_seats[target_seat] = true
-	var original := _get_original_seat_for_current(seat_index)
-	_current_seat[original] = target_seat
+	var orig := original_seat if original_seat >= 0 else seat_index
+	_current_seat[orig] = target_seat
 	player_sat.emit(seat_index, target_seat)
 
 # ---------------------------------------------------------------------------

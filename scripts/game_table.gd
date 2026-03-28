@@ -54,6 +54,7 @@ var player_bodies: Dictionary = {}  # seat_index -> PlayerBody
 var participant_profiles: Array = []
 var seat_contexts: Array[SeatContext] = []
 var local_seat_index: int = 0
+var local_original_seat: int = 0  # Never changes — the game seat assigned at setup
 var num_players: int = 2
 var is_dealing: bool = false
 var is_local_player_standing: bool = false
@@ -367,6 +368,7 @@ func setup_players(count: int) -> void:
 		num_players = clampi(count, 1, 4)
 	_game_to_table = _build_game_to_table_mapping(num_players)
 	local_seat_index = _resolve_local_seat_index(num_players)
+	local_original_seat = local_seat_index
 	debug_view_seat_override = _sanitize_debug_view_seat_override(num_players)
 	seat_contexts.clear()
 	_rebuild_participant_profiles(num_players)
@@ -1220,10 +1222,9 @@ func _on_body_request_sit(target_seat: int) -> void:
 			return
 		SteamMovementService._standing_seats[local_seat_index] = false
 		SteamMovementService._occupied_seats[target_seat] = true
-		var original := SteamMovementService._get_original_seat_for_current(local_seat_index)
-		SteamMovementService._current_seat[original] = target_seat
-		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
-		SteamMovementService._client_player_sat(local_seat_index, target_seat)
+		SteamMovementService._current_seat[local_original_seat] = target_seat
+		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat, local_original_seat)
+		SteamMovementService._client_player_sat(local_seat_index, target_seat, local_original_seat)
 	else:
 		SteamMovementService.local_sit(local_seat_index, target_seat)
 

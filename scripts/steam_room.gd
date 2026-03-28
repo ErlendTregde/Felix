@@ -34,6 +34,7 @@ var player_body_scene = preload("res://scenes/players/player_body.tscn")
 var player_bodies: Dictionary = {}  # seat_index -> PlayerBody
 var local_body: PlayerBody = null
 var local_seat_index: int = 0
+var local_original_seat: int = 0  # Never changes — the seat assigned by room state
 var is_standing: bool = false
 var interaction_label: Label = null
 
@@ -131,7 +132,7 @@ func _refresh_seat_labels(room_state: RoomState) -> void:
 func _refresh_buttons(room_state: RoomState) -> void:
 	var local_member := room_state.get_member(SteamPlatformService.get_local_steam_id())
 	var is_host := SteamRoomService.is_local_host()
-	ready_button.visible = not room_state.round_active and local_member != null
+	ready_button.visible = not room_state.round_active and local_member != null and not is_standing
 	if local_member != null and local_member.is_ready:
 		ready_button.text = "Unready"
 	else:
@@ -363,9 +364,9 @@ func _setup_movement_ui() -> void:
 
 func _spawn_all_player_bodies() -> void:
 	var room_state := SteamRoomService.get_room_state()
-	var local_original_seat := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
-	if local_original_seat < 0:
-		local_original_seat = 0
+	var orig_seat := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
+	if orig_seat >= 0:
+		local_original_seat = orig_seat
 	# Only set local_seat_index from room state on first spawn.
 	# After that, seat switches via SteamMovementService update it.
 	if local_body == null:
@@ -449,6 +450,8 @@ func _spawn_all_player_bodies() -> void:
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:
 		return
+	# Leaving seat counts as unready
+	SteamRoomService.request_ready_state(false)
 	# Route through SteamMovementService RPCs
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		SteamMovementService.client_request_stand.rpc_id(1)
@@ -470,10 +473,9 @@ func _on_body_request_sit(target_seat: int) -> void:
 			return
 		SteamMovementService._standing_seats[local_seat_index] = false
 		SteamMovementService._occupied_seats[target_seat] = true
-		var original := SteamMovementService._get_original_seat_for_current(local_seat_index)
-		SteamMovementService._current_seat[original] = target_seat
-		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
-		SteamMovementService._client_player_sat(local_seat_index, target_seat)
+		SteamMovementService._current_seat[local_original_seat] = target_seat
+		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat, local_original_seat)
+		SteamMovementService._client_player_sat(local_seat_index, target_seat, local_original_seat)
 	else:
 		SteamMovementService.local_sit(local_seat_index, target_seat)
 
@@ -502,6 +504,7 @@ func _on_player_stood(seat_index: int) -> void:
 		camera_controller.set_process_input(false)
 		body.activate_fps_camera()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_refresh_buttons(SteamRoomService.get_room_state())
 
 func _on_player_sat(seat_index: int, target_seat: int) -> void:
 	var body := _find_body_at_seat(seat_index)
@@ -527,6 +530,7 @@ func _on_player_sat(seat_index: int, target_seat: int) -> void:
 		camera_controller.camera.make_current()
 		var room_state := SteamRoomService.get_room_state()
 		_apply_local_view(room_state)
+		_refresh_buttons(room_state)
 
 ## ── Lobby actions ────────────────────────────────────────────────────────
 
