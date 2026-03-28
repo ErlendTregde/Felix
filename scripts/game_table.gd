@@ -1100,6 +1100,7 @@ func _spawn_player_bodies() -> void:
 			body.queue_free()
 	player_bodies.clear()
 
+	var init_seats: Array = []
 	for i in range(num_players):
 		var ctx := seat_contexts[i]
 		if ctx.control_type == SeatContext.SeatControlType.BOT:
@@ -1115,6 +1116,9 @@ func _spawn_player_bodies() -> void:
 		body.request_stand.connect(_on_body_request_stand)
 		body.interaction_label = interaction_label
 		player_bodies[i] = body
+		init_seats.append(i)
+
+	SteamMovementService.init_occupied_seats(init_seats)
 
 func _get_peer_id_for_seat(seat_index: int) -> int:
 	if not multiplayer.has_multiplayer_peer():
@@ -1125,8 +1129,14 @@ func _get_peer_id_for_seat(seat_index: int) -> int:
 			return member.peer_id
 	return 1
 
+func _is_round_active() -> bool:
+	var s := GameManager.current_state
+	return s == GameManager.GameState.DEALING or s == GameManager.GameState.INITIAL_VIEWING \
+		or s == GameManager.GameState.PLAYING or s == GameManager.GameState.ABILITY_ACTIVE \
+		or s == GameManager.GameState.KNOCKED
+
 func _on_leave_seat_pressed() -> void:
-	if is_local_player_standing:
+	if is_local_player_standing or _is_round_active():
 		return
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		SteamMovementService.client_request_stand.rpc_id(1)
@@ -1145,11 +1155,14 @@ func _on_body_request_sit(target_seat: int) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		SteamMovementService.client_request_sit.rpc_id(1, target_seat)
 	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		if SteamMovementService.is_seat_occupied(target_seat):
+			return
 		SteamMovementService._standing_seats[local_seat_index] = false
+		SteamMovementService._occupied_seats[target_seat] = true
 		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
 		SteamMovementService._client_player_sat(local_seat_index, target_seat)
 	else:
-		SteamMovementService.local_sit(local_seat_index)
+		SteamMovementService.local_sit(local_seat_index, target_seat)
 
 func _on_body_request_stand() -> void:
 	_on_leave_seat_pressed()
@@ -1178,14 +1191,22 @@ func _on_player_stood(seat_index: int) -> void:
 		if turn_ui:
 			turn_ui.hide_ui()
 
-func _on_player_sat(seat_index: int, _target_seat: int) -> void:
+func _on_player_sat(seat_index: int, target_seat: int) -> void:
 	var body: PlayerBody = player_bodies.get(seat_index)
 	if body:
 		body.set_standing(false)
+		# Move body to new seat if different
+		if target_seat != seat_index:
+			player_bodies.erase(seat_index)
+			body.seat_index = target_seat
+			player_bodies[target_seat] = body
 
 	# Only switch camera for the LOCAL player
-	if seat_index == local_seat_index:
+	var is_local: bool = (seat_index == local_seat_index)
+	if is_local:
 		is_local_player_standing = false
+		if target_seat != local_seat_index:
+			local_seat_index = target_seat
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		if body:
 			body.deactivate_fps_camera()
@@ -1199,5 +1220,5 @@ func _on_player_sat(seat_index: int, _target_seat: int) -> void:
 			leave_seat_container.visible = true
 
 func _show_leave_seat_ui() -> void:
-	if leave_seat_container and not is_local_player_standing:
+	if leave_seat_container and not is_local_player_standing and not _is_round_active():
 		leave_seat_container.visible = true

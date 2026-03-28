@@ -165,21 +165,8 @@ func _refresh_seat_visuals(room_state: RoomState) -> void:
 		chair_pos.y = seat_pos.y
 		var color := _get_seat_color(room_state, seat)
 
-		if seat.is_local:
-			var dot := MeshInstance3D.new()
-			var sphere := SphereMesh.new()
-			sphere.radius = 0.06
-			sphere.height = 0.12
-			dot.mesh = sphere
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = color.lightened(0.1)
-			mat.emission_enabled = true
-			mat.emission = color.lightened(0.15)
-			mat.emission_energy_multiplier = 1.3
-			dot.material_override = mat
-			add_child(dot)
-			dot.global_position = Vector3(seat_pos.x, seat_pos.y + 0.3, seat_pos.z)
-			seat_visuals.append(dot)
+		# Skip local player — they see through the seated camera, not a table avatar
+		if seat.seat_index == local_seat_index:
 			continue
 
 		var body_root := Node3D.new()
@@ -218,9 +205,8 @@ func _refresh_seat_visuals(room_state: RoomState) -> void:
 func _apply_local_view(room_state: RoomState) -> void:
 	if is_standing:
 		return
-	var seat_index := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
-	if seat_index < 0:
-		seat_index = 0
+	# Use local_seat_index which tracks the chair we're actually sitting in
+	var seat_index := local_seat_index
 	var direction := _get_seat_direction(seat_index)
 	var camera_pos := direction * SEAT_CAMERA_RADIUS
 	camera_pos.y = TABLE_SURFACE_Y + SEAT_CAMERA_HEIGHT_OFFSET
@@ -383,13 +369,15 @@ func _spawn_all_player_bodies() -> void:
 				local_body = null
 
 	# Add bodies for newly occupied seats
+	var init_seats: Array = []
 	for seat_idx in occupied_seats:
+		init_seats.append(seat_idx)
 		if player_bodies.has(seat_idx):
 			continue  # Already spawned
 		var seat: SeatState = occupied_seats[seat_idx]
 		var member = room_state.get_member(seat.occupant_steam_id)
 		var body_peer_id: int = member.peer_id if member != null and member.peer_id > 0 else 1
-		var body_is_local := (seat_idx == local_seat_index)
+		var body_is_local: bool = (seat_idx == local_seat_index)
 		var color := _get_seat_color(room_state, seat)
 
 		var body: PlayerBody = player_body_scene.instantiate()
@@ -401,6 +389,9 @@ func _spawn_all_player_bodies() -> void:
 			body.interaction_label = interaction_label
 			local_body = body
 		player_bodies[seat_idx] = body
+
+	# Initialize occupied seat tracking
+	SteamMovementService.init_occupied_seats(init_seats)
 
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:
@@ -421,11 +412,15 @@ func _on_body_request_sit(target_seat: int) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		SteamMovementService.client_request_sit.rpc_id(1, target_seat)
 	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		# Host validates occupancy locally
+		if SteamMovementService.is_seat_occupied(target_seat):
+			return
 		SteamMovementService._standing_seats[local_seat_index] = false
+		SteamMovementService._occupied_seats[target_seat] = true
 		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
 		SteamMovementService._client_player_sat(local_seat_index, target_seat)
 	else:
-		SteamMovementService.local_sit(local_seat_index)
+		SteamMovementService.local_sit(local_seat_index, target_seat)
 
 func _on_player_stood(seat_index: int) -> void:
 	var body: PlayerBody = player_bodies.get(seat_index)
@@ -448,16 +443,25 @@ func _on_player_stood(seat_index: int) -> void:
 		if leave_seat_container:
 			leave_seat_container.visible = false
 
-func _on_player_sat(seat_index: int, _target_seat: int) -> void:
+func _on_player_sat(seat_index: int, target_seat: int) -> void:
 	var body: PlayerBody = player_bodies.get(seat_index)
 	if body:
 		body.set_standing(false)
+		# Move body to new seat if different
+		if target_seat != seat_index:
+			player_bodies.erase(seat_index)
+			body.seat_index = target_seat
+			player_bodies[target_seat] = body
 
 	# Refresh seated visuals to show this player's avatar again
 	_refresh_seat_visuals(SteamRoomService.get_room_state())
 
-	if seat_index == local_seat_index:
+	var is_local_player: bool = (seat_index == local_seat_index)
+	if is_local_player:
 		is_standing = false
+		# Update local seat index if we sat in a different chair
+		if target_seat != local_seat_index:
+			local_seat_index = target_seat
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		if body:
 			body.deactivate_fps_camera()

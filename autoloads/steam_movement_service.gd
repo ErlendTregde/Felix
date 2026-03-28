@@ -7,12 +7,29 @@ signal player_stood(seat_index: int)
 signal player_sat(seat_index: int, target_seat: int)
 
 var _standing_seats: Dictionary = {}  # seat_index -> bool
+var _occupied_seats: Dictionary = {}  # seat_index -> true (seats with someone sitting in them)
 
 func _log(msg: String) -> void:
 	print("[SteamMovementService] %s" % msg)
 
 func reset() -> void:
 	_standing_seats.clear()
+	_occupied_seats.clear()
+
+func is_seat_occupied(seat_index: int) -> bool:
+	return _occupied_seats.get(seat_index, false)
+
+func mark_seat_occupied(seat_index: int) -> void:
+	_occupied_seats[seat_index] = true
+
+func mark_seat_free(seat_index: int) -> void:
+	_occupied_seats.erase(seat_index)
+
+func init_occupied_seats(seat_indices: Array) -> void:
+	"""Mark initial seats as occupied (call when lobby/game loads)."""
+	_occupied_seats.clear()
+	for idx in seat_indices:
+		_occupied_seats[idx] = true
 
 func is_seat_standing(seat_index: int) -> bool:
 	return _standing_seats.get(seat_index, false)
@@ -48,6 +65,7 @@ func client_request_stand() -> void:
 		return  # Already standing
 	_log("Player at seat %d requests to stand" % seat_idx)
 	_standing_seats[seat_idx] = true
+	_occupied_seats.erase(seat_idx)  # Free the seat
 	# Broadcast to all clients
 	_client_player_stood.rpc(seat_idx)
 	# Apply locally on host
@@ -62,12 +80,13 @@ func client_request_sit(target_seat: int) -> void:
 		return
 	if not _standing_seats.get(seat_idx, false):
 		return  # Already seated
-	# Players can only sit in their own seat
-	if target_seat != seat_idx:
-		push_warning("SteamMovementService: Player %d tried to sit in seat %d (not their seat)" % [seat_idx, target_seat])
+	# Check if target seat is already occupied by someone else
+	if _occupied_seats.get(target_seat, false):
+		push_warning("SteamMovementService: Seat %d is already occupied — player %d cannot sit" % [target_seat, seat_idx])
 		return
 	_log("Player at seat %d requests to sit at seat %d" % [seat_idx, target_seat])
 	_standing_seats[seat_idx] = false
+	_occupied_seats[target_seat] = true
 	# Broadcast to all clients
 	_client_player_sat.rpc(seat_idx, target_seat)
 	# Apply locally on host
@@ -80,12 +99,14 @@ func client_request_sit(target_seat: int) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _client_player_stood(seat_index: int) -> void:
 	_standing_seats[seat_index] = true
+	_occupied_seats.erase(seat_index)
 	_log("Player at seat %d stood up" % seat_index)
 	player_stood.emit(seat_index)
 
 @rpc("authority", "call_remote", "reliable")
 func _client_player_sat(seat_index: int, target_seat: int) -> void:
 	_standing_seats[seat_index] = false
+	_occupied_seats[target_seat] = true
 	_log("Player at seat %d sat down at seat %d" % [seat_index, target_seat])
 	player_sat.emit(seat_index, target_seat)
 
@@ -95,7 +116,8 @@ func _client_force_sit_all() -> void:
 	for seat_idx in _standing_seats.keys():
 		if _standing_seats[seat_idx]:
 			_standing_seats[seat_idx] = false
-			player_sat.emit(seat_idx, seat_idx)
+			_occupied_seats[seat_idx] = true
+			player_sat.emit(seat_idx, seat_idx)  # Force back to own seat
 
 # ---------------------------------------------------------------------------
 # Host-only: force everyone seated (e.g. on round end)
@@ -107,6 +129,7 @@ func force_sit_all() -> void:
 	_log("Host forcing all players seated")
 	for seat_idx in _standing_seats.keys():
 		_standing_seats[seat_idx] = false
+		_occupied_seats[seat_idx] = true
 	_client_force_sit_all.rpc()
 	_client_force_sit_all()
 
@@ -116,8 +139,12 @@ func force_sit_all() -> void:
 
 func local_stand(seat_index: int) -> void:
 	_standing_seats[seat_index] = true
+	_occupied_seats.erase(seat_index)
 	player_stood.emit(seat_index)
 
-func local_sit(seat_index: int) -> void:
+func local_sit(seat_index: int, target_seat: int = -1) -> void:
+	if target_seat < 0:
+		target_seat = seat_index
 	_standing_seats[seat_index] = false
-	player_sat.emit(seat_index, seat_index)
+	_occupied_seats[target_seat] = true
+	player_sat.emit(seat_index, target_seat)
