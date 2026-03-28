@@ -31,7 +31,9 @@ var _debug_visible: bool = false
 
 # Movement system
 var player_body_scene = preload("res://scenes/players/player_body.tscn")
-var player_body: PlayerBody = null
+var player_bodies: Dictionary = {}  # seat_index -> PlayerBody
+var local_body: PlayerBody = null
+var local_seat_index: int = 0
 var is_standing: bool = false
 var leave_seat_container: Control = null
 var interaction_label: Label = null
@@ -60,7 +62,9 @@ func _ready() -> void:
 	_refresh_view()
 	_build_debug_overlay()
 	_setup_movement_ui()
-	_spawn_local_player_body()
+	SteamMovementService.player_stood.connect(_on_player_stood)
+	SteamMovementService.player_sat.connect(_on_player_sat)
+	_spawn_all_player_bodies()
 
 func _connect_room_service() -> void:
 	if not SteamRoomService.room_state_changed.is_connected(_on_room_state_changed):
@@ -71,6 +75,7 @@ func _connect_room_service() -> void:
 
 func _on_room_state_changed() -> void:
 	_refresh_view()
+	_spawn_all_player_bodies()
 
 func _on_status_message_changed(message: String) -> void:
 	status_label.text = message
@@ -150,6 +155,9 @@ func _refresh_seat_visuals(room_state: RoomState) -> void:
 	for seat in room_state.seat_states:
 		if not seat.is_occupied() or seat.seat_index >= positions.size():
 			continue
+		# Skip seated visual if this player is standing (their PlayerBody is visible instead)
+		if SteamMovementService.is_seat_standing(seat.seat_index):
+			continue
 		var grid_pos: Vector3 = positions[seat.seat_index]
 		var dir_away := Vector3(grid_pos.x, 0, grid_pos.z).normalized()
 		var seat_pos := grid_pos + dir_away * 1.5
@@ -208,6 +216,8 @@ func _refresh_seat_visuals(room_state: RoomState) -> void:
 		seat_visuals.append(body_root)
 
 func _apply_local_view(room_state: RoomState) -> void:
+	if is_standing:
+		return
 	var seat_index := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
 	if seat_index < 0:
 		seat_index = 0
@@ -350,58 +360,114 @@ func _setup_movement_ui() -> void:
 	interaction_label.size = Vector2(200, 40)
 	prompt_canvas.add_child(interaction_label)
 
-func _spawn_local_player_body() -> void:
-	if player_body != null:
-		return
-	player_body = player_body_scene.instantiate()
-	# Use a unique name per peer so MultiplayerSynchronizer paths don't collide
-	var local_peer := multiplayer.get_unique_id()
-	player_body.name = "LobbyBody_%d" % local_peer
-	add_child(player_body)
-	# Disable the MultiplayerSynchronizer — lobby movement is local only,
-	# no need to sync walking position to other peers.
-	var sync := player_body.get_node_or_null("MultiplayerSynchronizer")
-	if sync:
-		sync.queue_free()
-	player_body.setup(0, local_peer, SteamPlatformService.get_local_display_name(), Color(0.4, 0.6, 0.4), true)
-	player_body.request_sit.connect(_on_body_request_sit)
-	player_body.interaction_label = interaction_label
+func _spawn_all_player_bodies() -> void:
+	var room_state := SteamRoomService.get_room_state()
+	local_seat_index = room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
+	if local_seat_index < 0:
+		local_seat_index = 0
+
+	# Build set of occupied seat indices
+	var occupied_seats: Dictionary = {}
+	for seat in room_state.seat_states:
+		if seat.is_occupied():
+			occupied_seats[seat.seat_index] = seat
+
+	# Remove bodies for seats that are no longer occupied
+	for seat_idx in player_bodies.keys():
+		if not occupied_seats.has(seat_idx):
+			var body: PlayerBody = player_bodies[seat_idx]
+			if is_instance_valid(body):
+				body.queue_free()
+			player_bodies.erase(seat_idx)
+			if seat_idx == local_seat_index:
+				local_body = null
+
+	# Add bodies for newly occupied seats
+	for seat_idx in occupied_seats:
+		if player_bodies.has(seat_idx):
+			continue  # Already spawned
+		var seat: SeatState = occupied_seats[seat_idx]
+		var member = room_state.get_member(seat.occupant_steam_id)
+		var body_peer_id: int = member.peer_id if member != null and member.peer_id > 0 else 1
+		var body_is_local := (seat_idx == local_seat_index)
+		var color := _get_seat_color(room_state, seat)
+
+		var body: PlayerBody = player_body_scene.instantiate()
+		body.name = "LobbyBody_%d" % body_peer_id
+		add_child(body)
+		body.setup(seat_idx, body_peer_id, seat.display_name, color, body_is_local)
+		body.request_sit.connect(_on_body_request_sit)
+		if body_is_local:
+			body.interaction_label = interaction_label
+			local_body = body
+		player_bodies[seat_idx] = body
 
 func _on_leave_seat_pressed() -> void:
-	if is_standing or player_body == null:
+	if is_standing or local_body == null:
 		return
-	var room_state := SteamRoomService.get_room_state()
-	var seat_index := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
-	if seat_index < 0:
-		seat_index = 0
+	# Route through SteamMovementService RPCs
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamMovementService.client_request_stand.rpc_id(1)
+	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamMovementService._standing_seats[local_seat_index] = true
+		SteamMovementService._client_player_stood.rpc(local_seat_index)
+		SteamMovementService._client_player_stood(local_seat_index)
+	else:
+		SteamMovementService.local_stand(local_seat_index)
 
-	is_standing = true
+func _on_body_request_sit(target_seat: int) -> void:
+	if not is_standing or local_body == null:
+		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamMovementService.client_request_sit.rpc_id(1, target_seat)
+	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamMovementService._standing_seats[local_seat_index] = false
+		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
+		SteamMovementService._client_player_sat(local_seat_index, target_seat)
+	else:
+		SteamMovementService.local_sit(local_seat_index)
+
+func _on_player_stood(seat_index: int) -> void:
+	var body: PlayerBody = player_bodies.get(seat_index)
+	if body == null:
+		return
 	var chair_pos := CHAIR_POSITIONS[seat_index] if seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
 	var face_dir := CHAIR_FACE_DIRECTIONS[seat_index] if seat_index < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
-	player_body.spawn_at_chair(chair_pos, face_dir)
-	player_body.set_standing(true)
+	body.spawn_at_chair(chair_pos, face_dir)
+	body.set_standing(true)
 
-	# Switch camera: disable seated, then make FPS current
-	camera_controller.set_process(false)
-	camera_controller.set_process_input(false)
-	player_body.activate_fps_camera()
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	leave_seat_container.visible = false
+	# Refresh seated visuals to hide this player's avatar
+	_refresh_seat_visuals(SteamRoomService.get_room_state())
 
-func _on_body_request_sit(_target_seat: int) -> void:
-	if not is_standing or player_body == null:
-		return
-	is_standing = false
-	player_body.set_standing(false)
-	player_body.deactivate_fps_camera()
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	# Restore seated camera
-	camera_controller.set_process(true)
-	camera_controller.set_process_input(true)
-	camera_controller.camera.make_current()
-	var room_state := SteamRoomService.get_room_state()
-	_apply_local_view(room_state)
-	leave_seat_container.visible = true
+	if seat_index == local_seat_index:
+		is_standing = true
+		camera_controller.set_process(false)
+		camera_controller.set_process_input(false)
+		body.activate_fps_camera()
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if leave_seat_container:
+			leave_seat_container.visible = false
+
+func _on_player_sat(seat_index: int, _target_seat: int) -> void:
+	var body: PlayerBody = player_bodies.get(seat_index)
+	if body:
+		body.set_standing(false)
+
+	# Refresh seated visuals to show this player's avatar again
+	_refresh_seat_visuals(SteamRoomService.get_room_state())
+
+	if seat_index == local_seat_index:
+		is_standing = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if body:
+			body.deactivate_fps_camera()
+		camera_controller.set_process(true)
+		camera_controller.set_process_input(true)
+		camera_controller.camera.make_current()
+		var room_state := SteamRoomService.get_room_state()
+		_apply_local_view(room_state)
+		if leave_seat_container:
+			leave_seat_container.visible = true
 
 ## ── Lobby actions ────────────────────────────────────────────────────────
 
