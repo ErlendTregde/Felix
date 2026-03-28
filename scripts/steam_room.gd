@@ -402,15 +402,16 @@ func _spawn_all_player_bodies() -> void:
 		var body: PlayerBody = player_body_scene.instantiate()
 		# Name by seat_index so both peers have the same node path
 		body.name = "LobbyBody_Seat%d" % seat_idx
-		# Disable sync until remote peer has created matching nodes
+		# Remove MultiplayerSynchronizer before adding to tree —
+		# it triggers path registration immediately and the remote peer
+		# may not have matching nodes yet. Re-add after a delay.
 		var sync_node := body.get_node_or_null("MultiplayerSynchronizer")
-		if sync_node is MultiplayerSynchronizer:
-			sync_node.public_visibility = false
+		if sync_node:
+			body.remove_child(sync_node)
+			sync_node.queue_free()
 		add_child(body)
 		body.setup(seat_idx, body_peer_id, seat.display_name, color, body_is_local)
-		# Enable sync after a brief delay to let remote peer create matching bodies
-		if sync_node is MultiplayerSynchronizer:
-			_enable_sync_delayed(sync_node)
+		_add_sync_delayed(body)
 		body.request_sit.connect(_on_body_request_sit)
 		if body_is_local:
 			body.interaction_label = interaction_label
@@ -420,10 +421,24 @@ func _spawn_all_player_bodies() -> void:
 	# Initialize occupied seat tracking
 	SteamMovementService.init_occupied_seats(init_seats)
 
-func _enable_sync_delayed(sync_node: MultiplayerSynchronizer) -> void:
-	await get_tree().create_timer(0.5).timeout
-	if is_instance_valid(sync_node):
-		sync_node.public_visibility = true
+func _add_sync_delayed(body: PlayerBody) -> void:
+	# Wait for remote peer to create matching body nodes
+	await get_tree().create_timer(1.0).timeout
+	if not is_instance_valid(body) or not body.is_inside_tree():
+		return
+	# Don't add if one already exists (e.g. body was re-created)
+	if body.get_node_or_null("MultiplayerSynchronizer"):
+		return
+	var config := SceneReplicationConfig.new()
+	config.add_property(NodePath(".:position"))
+	config.property_set_replication_mode(NodePath(".:position"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	config.add_property(NodePath(".:rotation"))
+	config.property_set_replication_mode(NodePath(".:rotation"), SceneReplicationConfig.REPLICATION_MODE_ALWAYS)
+	var sync := MultiplayerSynchronizer.new()
+	sync.name = "MultiplayerSynchronizer"
+	sync.replication_config = config
+	sync.replication_interval = 0.05
+	body.add_child(sync)
 
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:
