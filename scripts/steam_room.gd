@@ -50,9 +50,8 @@ const CHAIR_FACE_DIRECTIONS: Array[Vector3] = [
 	Vector3(1, 0, 0),
 ]
 
-# Wall spawn point — players start here standing, facing inward
+# Wall spawn point — players start here standing, facing toward table
 const WALL_SPAWN_POS := Vector3(0, 0, -16.0)  # Near north wall
-const WALL_SPAWN_FACE := Vector3(0, 0, 1)     # Facing south (toward table)
 
 func _ready() -> void:
 	_connect_room_service()
@@ -67,6 +66,10 @@ func _ready() -> void:
 	SteamMovementService.player_stood.connect(_on_player_stood)
 	SteamMovementService.player_sat.connect(_on_player_sat)
 	SteamMovementService.position_updated.connect(_on_remote_position_updated)
+	# Disable seated camera before spawning — players start standing with FPS camera
+	camera_controller.set_active(false)
+	if camera_controller.camera:
+		camera_controller.camera.current = false
 	_spawn_all_player_bodies()
 	_refresh_view()
 
@@ -426,7 +429,14 @@ func _spawn_all_player_bodies() -> void:
 	for i in new_bodies.size():
 		var body: PlayerBody = new_bodies[i]
 		var spawn_pos := WALL_SPAWN_POS + Vector3(i * 2.0 - (new_bodies.size() - 1), 0, 0)
-		body.spawn_at_chair(spawn_pos, WALL_SPAWN_FACE)
+		body.global_position = Vector3(spawn_pos.x, 0.0, spawn_pos.z)
+		# Face toward table center (+Z from north wall)
+		var yaw := atan2(0.0, 1.0)  # facing +Z (south, toward table)
+		body.rotation.y = yaw
+		body.mouse_rotation.x = yaw
+		if body.is_local and body.fps_camera:
+			body.fps_camera.rotation.x = 0.0
+			body.mouse_rotation.y = 0.0
 		body.set_standing(true)
 		SteamMovementService._standing_seats[body.seat_index] = true
 		if body.is_local:
