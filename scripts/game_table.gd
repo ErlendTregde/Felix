@@ -57,6 +57,7 @@ var local_seat_index: int = 0
 var num_players: int = 2
 var is_dealing: bool = false
 var is_local_player_standing: bool = false
+var _game_to_table: Array[int] = []  # Maps game seat (0..N-1) → table position (0..3)
 
 var draw_pile_visual: CardPile = null
 var discard_pile_visual: CardPile = null
@@ -364,7 +365,11 @@ func setup_players(count: int) -> void:
 			num_players = 2
 	else:
 		num_players = clampi(count, 1, 4)
+	_game_to_table = _build_game_to_table_mapping(num_players)
 	local_seat_index = _resolve_local_seat_index(num_players)
+	# Reset movement service AFTER reading lobby seat data for the mapping.
+	# The game's movement system uses game seats (0..N-1), not lobby table positions.
+	SteamMovementService.reset()
 	debug_view_seat_override = _sanitize_debug_view_seat_override(num_players)
 	seat_contexts.clear()
 	_rebuild_participant_profiles(num_players)
@@ -373,7 +378,7 @@ func setup_players(count: int) -> void:
 		seat_assignments = _build_seat_assignments_from_room_state(num_players)
 	else:
 		seat_assignments = _build_local_participant_seat_assignment(num_players, local_seat_index)
-	
+
 	# Player positions around the round table (surface Y set dynamically)
 	var card_y := table_surface_y + 0.01  # Cards sit slightly above table surface
 	var positions = [
@@ -382,19 +387,20 @@ func setup_players(count: int) -> void:
 		Vector3(-4, card_y, 0),
 		Vector3(4, card_y, 0)
 	]
-	
+
 	var rotations = [
 		0,          # Player 0 faces north
 		PI,         # Player 1 faces south
 		PI / 2,     # Player 2 faces east
 		-PI / 2     # Player 3 faces west
 	]
-	
+
 	for i in range(num_players):
+		var table_pos := get_table_position(i)
 		var participant_id := seat_assignments[i]
 		var participant_profile = get_participant_profile(participant_id)
 		var seat_control_type: SeatContext.SeatControlType = participant_profile.control_type if participant_profile != null else SeatContext.SeatControlType.BOT
-		var seat_label := get_seat_label(i)
+		var seat_label := get_table_label(table_pos)
 		var seat_context := SeatContext.new().configure(
 			i,
 			seat_label,
@@ -416,21 +422,21 @@ func setup_players(count: int) -> void:
 		player.set_control_type(seat_control_type)
 		players.append(player)
 		players_container.add_child(player)
-		
-		# Create PlayerGrid
+
+		# Create PlayerGrid — use table position for physical placement
 		var grid = player_grid_scene.instantiate()
 		grid.player_id = i
 		grid.owner_seat_id = i
-		grid.position = positions[i]
-		grid.rotation.y = rotations[i]
-		grid.base_rotation_y = rotations[i]  # Store rotation for cards
+		grid.position = positions[table_pos]
+		grid.rotation.y = rotations[table_pos]
+		grid.base_rotation_y = rotations[table_pos]  # Store rotation for cards
 		grid.set_meta("owner_player", player)
 		grid.set_meta("owner_seat_id", i)
 		grid.set_meta("occupant_participant_id", participant_id)
 		player_grids.append(grid)
 		players_container.add_child(grid)
-		
-		print("Setup %s in %s seat at position %s" % [player.player_name, seat_label, positions[i]])
+
+		print("Setup %s in %s seat at position %s" % [player.player_name, seat_label, positions[table_pos]])
 	
 	# Update GameManager
 	GameManager.players = players
@@ -698,14 +704,41 @@ func _client_confirm_ability_local() -> void:
 func _resolve_local_seat_index(player_count: int) -> int:
 	if local_seat_override >= 0:
 		return clampi(local_seat_override, 0, max(player_count - 1, 0))
-	# In multiplayer, use the seat assigned by SteamRoomService, mapped through seat switches
+	# In multiplayer, find which game seat the local player is at
 	if multiplayer.has_multiplayer_peer():
 		var rs := SteamRoomService.get_room_state()
 		var original_seat := rs.get_local_seat_index(SteamPlatformService.get_local_steam_id())
-		var current_seat := SteamMovementService.get_current_seat(original_seat)
-		if current_seat >= 0 and current_seat < player_count:
-			return current_seat
+		var table_pos := SteamMovementService.get_current_seat(original_seat)
+		# Reverse-lookup: find which game seat maps to this table position
+		var game_seat := _game_to_table.find(table_pos)
+		if game_seat >= 0 and game_seat < player_count:
+			return game_seat
 	return 0
+
+func _build_game_to_table_mapping(player_count: int) -> Array[int]:
+	"""Build mapping from game seat (0..N-1) to table position (0..3).
+	Uses lobby seat switches so players keep the seat they chose."""
+	var mapping: Array[int] = []
+	if multiplayer.has_multiplayer_peer():
+		var rs := SteamRoomService.get_room_state()
+		for seat in rs.seat_states:
+			if seat.is_occupied() and seat.seat_index < player_count:
+				var table_pos := SteamMovementService.get_current_seat(seat.seat_index)
+				mapping.append(table_pos)
+		# Sort so game seat ordering is deterministic (by table position)
+		mapping.sort()
+	if mapping.size() < player_count:
+		# Fallback: identity mapping (no seat switches)
+		mapping.clear()
+		for i in range(player_count):
+			mapping.append(i)
+	return mapping
+
+func get_table_position(game_seat: int) -> int:
+	"""Convert game seat index (0..N-1) to table position (0..3)."""
+	if game_seat >= 0 and game_seat < _game_to_table.size():
+		return _game_to_table[game_seat]
+	return game_seat
 
 func _sanitize_debug_view_seat_override(player_count: int) -> int:
 	if debug_view_seat_override < 0:
@@ -741,11 +774,14 @@ func _build_seat_assignments_from_room_state(player_count: int) -> Array[int]:
 	seat_assignments.resize(player_count)
 	var rs := SteamRoomService.get_room_state()
 	for seat in rs.seat_states:
-		if seat.is_occupied():
-			# Map original seat to current seat (respects lobby seat switches)
-			var current_seat := SteamMovementService.get_current_seat(seat.seat_index)
-			if current_seat < player_count:
-				seat_assignments[current_seat] = seat.occupant_participant_id
+		if not seat.is_occupied():
+			continue
+		# Find the table position this participant is at (after lobby seat switches)
+		var table_pos := SteamMovementService.get_current_seat(seat.seat_index)
+		# Reverse-lookup: find which game seat maps to this table position
+		var game_seat := _game_to_table.find(table_pos)
+		if game_seat >= 0 and game_seat < player_count:
+			seat_assignments[game_seat] = seat.occupant_participant_id
 	return seat_assignments
 
 func _build_local_participant_seat_assignment(player_count: int, desired_local_seat: int) -> Array[int]:
@@ -778,9 +814,17 @@ func get_participant_profile_for_seat(seat_id: int):
 	return get_participant_profile(context.occupant_participant_id)
 
 func get_seat_label(seat_id: int) -> String:
-	if seat_id >= 0 and seat_id < SEAT_LABELS.size():
-		return SEAT_LABELS[seat_id]
+	"""Returns the label for a game seat, mapped to its table position."""
+	var tp := get_table_position(seat_id)
+	if tp >= 0 and tp < SEAT_LABELS.size():
+		return SEAT_LABELS[tp]
 	return "Seat %d" % (seat_id + 1)
+
+func get_table_label(table_pos: int) -> String:
+	"""Returns the label for a raw table position (0-3)."""
+	if table_pos >= 0 and table_pos < SEAT_LABELS.size():
+		return SEAT_LABELS[table_pos]
+	return "Seat %d" % (table_pos + 1)
 
 func _get_participant_color(participant_id: int) -> Color:
 	if participant_id >= 0 and participant_id < PARTICIPANT_COLORS.size():
@@ -1132,12 +1176,16 @@ func _spawn_player_bodies() -> void:
 
 	SteamMovementService.init_occupied_seats(init_seats)
 
-func _get_peer_id_for_seat(seat_index: int) -> int:
+func _get_peer_id_for_seat(game_seat: int) -> int:
 	if not multiplayer.has_multiplayer_peer():
 		return 1  # Local mode: authority is always 1
+	# Use the seat context to get the participant_id, then find the peer
+	if game_seat < 0 or game_seat >= seat_contexts.size():
+		return 1
+	var pid := seat_contexts[game_seat].occupant_participant_id
 	var rs := SteamRoomService.get_room_state()
 	for member in rs.members_by_steam_id.values():
-		if member.seat_index == seat_index:
+		if member.participant_id == pid:
 			return member.peer_id
 	return 1
 
@@ -1193,8 +1241,9 @@ func _on_player_stood(seat_index: int) -> void:
 	if body == null:
 		return
 
-	var chair_pos := CHAIR_POSITIONS[seat_index] if seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
-	var face_dir := CHAIR_FACE_DIRECTIONS[seat_index] if seat_index < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+	var tp := get_table_position(seat_index)
+	var chair_pos := CHAIR_POSITIONS[tp] if tp < CHAIR_POSITIONS.size() else Vector3.ZERO
+	var face_dir := CHAIR_FACE_DIRECTIONS[tp] if tp < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
 	body.spawn_at_chair(chair_pos, face_dir)
 	body.set_standing(true)
 

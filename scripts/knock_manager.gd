@@ -49,13 +49,14 @@ func create_buttons() -> void:
 		btn.button_pressed.connect(_on_button_pressed)
 		table.add_child(btn)
 
-		# Position in global space (must be in tree first)
+		# Use table position for physical placement (respects lobby seat switches)
+		var tp: int = table.get_table_position(i)
 		var grid_pos: Vector3 = table.player_grids[i].global_position
-		var offset: Vector3 = BUTTON_OFFSETS[i] if i < BUTTON_OFFSETS.size() else Vector3.ZERO
+		var offset: Vector3 = BUTTON_OFFSETS[tp] if tp < BUTTON_OFFSETS.size() else Vector3.ZERO
 		btn.global_position = grid_pos + offset
 
 		# Rotation so label faces the player
-		btn.rotation.y = BUTTON_ROTATIONS[i] if i < BUTTON_ROTATIONS.size() else 0.0
+		btn.rotation.y = BUTTON_ROTATIONS[tp] if tp < BUTTON_ROTATIONS.size() else 0.0
 
 		knock_buttons.append(btn)
 

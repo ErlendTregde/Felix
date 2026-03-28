@@ -117,15 +117,18 @@ func get_neighbors(player_index: int) -> Array[int]:
 				neighbors.append(i)
 	elif total_players == 4:
 		# In 4-player game, neighbors are physically adjacent players
-		# Seating: 0=South, 1=North, 2=West, 3=East
-		# South/North neighbors: West and East (2, 3)
-		# West/East neighbors: South and North (0, 1)
-		if player_index == 0 or player_index == 1:  # South or North
-			neighbors.append(2)  # West
-			neighbors.append(3)  # East
-		else:  # West or East (2 or 3)
-			neighbors.append(0)  # South
-			neighbors.append(1)  # North
+		# Use table positions: South(0)/North(1) are neighbors with West(2)/East(3)
+		var my_tp: int = table.get_table_position(player_index) if table else player_index
+		for other_idx in range(total_players):
+			if other_idx == player_index:
+				continue
+			var other_tp: int = table.get_table_position(other_idx) if table else other_idx
+			# South(0)/North(1) are across from each other, West(2)/East(3) are across
+			# Neighbors = players NOT directly across (different pair)
+			var my_pair := my_tp / 2    # 0=South/North pair, 1=West/East pair
+			var other_pair := other_tp / 2
+			if my_pair != other_pair:
+				neighbors.append(other_idx)
 	
 	return neighbors
 
