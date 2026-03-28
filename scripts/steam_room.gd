@@ -59,13 +59,13 @@ func _ready() -> void:
 	leave_button.pressed.connect(_on_leave_pressed)
 	copy_button.pressed.connect(_on_copy_pressed)
 	SteamRoomService.ensure_room_flow_started()
-	_refresh_view()
 	_build_debug_overlay()
 	_setup_movement_ui()
 	SteamMovementService.player_stood.connect(_on_player_stood)
 	SteamMovementService.player_sat.connect(_on_player_sat)
 	SteamMovementService.position_updated.connect(_on_remote_position_updated)
 	_spawn_all_player_bodies()
+	_refresh_view()
 
 func _connect_room_service() -> void:
 	if not SteamRoomService.room_state_changed.is_connected(_on_room_state_changed):
@@ -75,8 +75,8 @@ func _connect_room_service() -> void:
 		SteamRoomService.room_transition.connect(_on_room_transition)
 
 func _on_room_state_changed() -> void:
-	_refresh_view()
 	_spawn_all_player_bodies()
+	_refresh_view()
 
 func _on_status_message_changed(message: String) -> void:
 	status_label.text = message
@@ -287,7 +287,7 @@ func _process(delta: float) -> void:
 			)
 
 func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float) -> void:
-	var body: PlayerBody = player_bodies.get(seat_index)
+	var body := _find_body_at_seat(seat_index)
 	if body and not body.is_local:
 		body.apply_remote_state(pos, rot_y)
 
@@ -374,9 +374,13 @@ func _setup_movement_ui() -> void:
 
 func _spawn_all_player_bodies() -> void:
 	var room_state := SteamRoomService.get_room_state()
-	local_seat_index = room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
-	if local_seat_index < 0:
-		local_seat_index = 0
+	var local_original_seat := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
+	if local_original_seat < 0:
+		local_original_seat = 0
+	# Only set local_seat_index from room state on first spawn.
+	# After that, seat switches via SteamMovementService update it.
+	if local_body == null:
+		local_seat_index = SteamMovementService.get_current_seat(local_original_seat)
 
 	# Build set of occupied seat indices with their current peer_id
 	var occupied_seats: Dictionary = {}  # seat_index -> SeatState
@@ -392,19 +396,19 @@ func _spawn_all_player_bodies() -> void:
 	for seat_idx in player_bodies.keys():
 		var body: PlayerBody = player_bodies[seat_idx]
 		if not occupied_seats.has(seat_idx):
+			if is_instance_valid(body) and body.is_local:
+				local_body = null
 			if is_instance_valid(body):
 				body.get_parent().remove_child(body)
 				body.queue_free()
 			player_bodies.erase(seat_idx)
-			if seat_idx == local_seat_index:
-				local_body = null
 		elif is_instance_valid(body) and body.peer_id != seat_peer_ids.get(seat_idx, 1):
 			# Peer ID changed — remove so it gets re-created with correct authority
+			if body.is_local:
+				local_body = null
 			body.get_parent().remove_child(body)
 			body.queue_free()
 			player_bodies.erase(seat_idx)
-			if seat_idx == local_seat_index:
-				local_body = null
 
 	# Add bodies for newly occupied seats
 	var init_seats: Array = []
@@ -414,7 +418,7 @@ func _spawn_all_player_bodies() -> void:
 			continue  # Already spawned with correct peer_id
 		var seat: SeatState = occupied_seats[seat_idx]
 		var body_peer_id: int = seat_peer_ids[seat_idx]
-		var body_is_local: bool = (seat_idx == local_seat_index)
+		var body_is_local: bool = (seat_idx == local_original_seat)
 		var color := _get_seat_color(room_state, seat)
 
 		var body: PlayerBody = player_body_scene.instantiate()
@@ -466,8 +470,15 @@ func _on_body_request_sit(target_seat: int) -> void:
 	else:
 		SteamMovementService.local_sit(local_seat_index, target_seat)
 
+func _find_body_at_seat(current_seat: int) -> PlayerBody:
+	"""Find the body currently at the given seat (checks body.seat_index, not dict key)."""
+	for body: PlayerBody in player_bodies.values():
+		if is_instance_valid(body) and body.seat_index == current_seat:
+			return body
+	return null
+
 func _on_player_stood(seat_index: int) -> void:
-	var body: PlayerBody = player_bodies.get(seat_index)
+	var body := _find_body_at_seat(seat_index)
 	if body == null:
 		return
 	var chair_pos := CHAIR_POSITIONS[seat_index] if seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
@@ -488,14 +499,11 @@ func _on_player_stood(seat_index: int) -> void:
 			leave_seat_container.visible = false
 
 func _on_player_sat(seat_index: int, target_seat: int) -> void:
-	var body: PlayerBody = player_bodies.get(seat_index)
+	var body := _find_body_at_seat(seat_index)
 	if body:
 		body.set_standing(false)
-		# Move body to new seat if different
-		if target_seat != seat_index:
-			player_bodies.erase(seat_index)
-			body.seat_index = target_seat
-			player_bodies[target_seat] = body
+		# Update the body's seat_index for visual positioning (don't move dict key)
+		body.seat_index = target_seat
 
 	# Refresh seated visuals to show this player's avatar again
 	_refresh_seat_visuals(SteamRoomService.get_room_state())

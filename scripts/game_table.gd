@@ -1178,8 +1178,14 @@ func _on_body_request_sit(target_seat: int) -> void:
 func _on_body_request_stand() -> void:
 	_on_leave_seat_pressed()
 
+func _find_body_at_seat(current_seat: int) -> PlayerBody:
+	for body: PlayerBody in player_bodies.values():
+		if is_instance_valid(body) and body.seat_index == current_seat:
+			return body
+	return null
+
 func _on_player_stood(seat_index: int) -> void:
-	var body: PlayerBody = player_bodies.get(seat_index)
+	var body := _find_body_at_seat(seat_index)
 	if body == null:
 		return
 
@@ -1203,14 +1209,10 @@ func _on_player_stood(seat_index: int) -> void:
 			turn_ui.hide_ui()
 
 func _on_player_sat(seat_index: int, target_seat: int) -> void:
-	var body: PlayerBody = player_bodies.get(seat_index)
+	var body := _find_body_at_seat(seat_index)
 	if body:
 		body.set_standing(false)
-		# Move body to new seat if different
-		if target_seat != seat_index:
-			player_bodies.erase(seat_index)
-			body.seat_index = target_seat
-			player_bodies[target_seat] = body
+		body.seat_index = target_seat
 
 	# Only switch camera for the LOCAL player
 	var is_local: bool = (seat_index == local_seat_index)
@@ -1239,7 +1241,7 @@ const SYNC_INTERVAL: float = 0.05
 
 func _process(delta: float) -> void:
 	if is_local_player_standing and multiplayer.has_multiplayer_peer():
-		var body: PlayerBody = player_bodies.get(local_seat_index)
+		var body := _find_body_at_seat(local_seat_index)
 		if body:
 			_sync_timer += delta
 			if _sync_timer >= SYNC_INTERVAL:
@@ -1250,6 +1252,6 @@ func _process(delta: float) -> void:
 				)
 
 func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float) -> void:
-	var body: PlayerBody = player_bodies.get(seat_index)
+	var body := _find_body_at_seat(seat_index)
 	if body and not body.is_local:
 		body.apply_remote_state(pos, rot_y)
