@@ -1,8 +1,15 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/main/camera_controller.tscn" id="1_camera"]
 [ext_resource type="PackedScene" path="res://scenes/environment/room_blockout.tscn" id="2_room"]
 [ext_resource type="PackedScene" path="res://assets/models/tableandchairs/round_table_and_chairs.glb" id="3_tablemodel"]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_table"]
+height = 6.8
+radius = 3.5
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_chair"]
+radius = 2.0
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -36,3 +43,48 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 6.77, 0)
 
 [node name="DiscardPile" type="Node3D" parent="PositionMarkers"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 6.77, 0)
+
+[node name="TableCollision" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.4, 0)
+collision_layer = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TableCollision"]
+shape = SubResource("CylinderShape3D_table")
+
+[node name="ChairZones" type="Node3D" parent="."]
+
+[node name="ChairSouth" type="Area3D" parent="ChairZones" groups=["chair_zones"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 5.5)
+collision_layer = 8
+collision_mask = 0
+metadata/seat_index = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ChairZones/ChairSouth"]
+shape = SubResource("SphereShape3D_chair")
+
+[node name="ChairNorth" type="Area3D" parent="ChairZones" groups=["chair_zones"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, -5.5)
+collision_layer = 8
+collision_mask = 0
+metadata/seat_index = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ChairZones/ChairNorth"]
+shape = SubResource("SphereShape3D_chair")
+
+[node name="ChairWest" type="Area3D" parent="ChairZones" groups=["chair_zones"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.5, 1, 0)
+collision_layer = 8
+collision_mask = 0
+metadata/seat_index = 2
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ChairZones/ChairWest"]
+shape = SubResource("SphereShape3D_chair")
+
+[node name="ChairEast" type="Area3D" parent="ChairZones" groups=["chair_zones"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.5, 1, 0)
+collision_layer = 8
+collision_mask = 0
+metadata/seat_index = 3
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="ChairZones/ChairEast"]
+shape = SubResource("SphereShape3D_chair")

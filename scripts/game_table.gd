@@ -44,15 +44,19 @@ var viewing_ui_scene = preload("res://scenes/ui/viewing_ui.tscn")
 var turn_ui_scene = preload("res://scenes/ui/turn_ui.tscn")
 var swap_choice_ui_scene = preload("res://scenes/ui/swap_choice_ui.tscn")
 var round_end_ui_scene = preload("res://scenes/ui/round_end_ui.tscn")
+var player_body_scene = preload("res://scenes/players/player_body.tscn")
+var leave_seat_ui_scene = preload("res://scenes/ui/leave_seat_ui.tscn")
 const ParticipantProfileScript = preload("res://scripts/participant_profile.gd")
 
 var player_grids: Array[PlayerGrid] = []
 var players: Array[Player] = []
+var player_bodies: Dictionary = {}  # seat_index -> PlayerBody
 var participant_profiles: Array = []
 var seat_contexts: Array[SeatContext] = []
 var local_seat_index: int = 0
 var num_players: int = 2
 var is_dealing: bool = false
+var is_local_player_standing: bool = false
 
 var draw_pile_visual: CardPile = null
 var discard_pile_visual: CardPile = null
@@ -60,6 +64,9 @@ var viewing_ui = null  # ViewingUI instance
 var turn_ui = null  # TurnUI instance
 var swap_choice_ui = null  # SwapChoiceUI instance
 var round_end_ui = null  # RoundEndUI instance
+var leave_seat_ui: CanvasLayer = null  # LeaveSeatUI CanvasLayer
+var leave_seat_container: Control = null  # The actual Control inside the CanvasLayer
+var interaction_label: Label = null  # "Press E to sit" prompt
 
 # Turn system variables
 var selected_card: Card3D = null
@@ -163,9 +170,37 @@ func _ready() -> void:
 	add_child(round_end_ui)
 	round_end_ui.play_again_pressed.connect(_on_play_again_pressed)
 	
+	# Create leave seat UI
+	leave_seat_ui = leave_seat_ui_scene.instantiate()
+	add_child(leave_seat_ui)
+	leave_seat_container = leave_seat_ui.get_node("Container")
+	leave_seat_container.visible = true
+	var leave_btn = leave_seat_ui.get_node("Container/LeaveSeatButton")
+	if leave_btn:
+		leave_btn.pressed.connect(_on_leave_seat_pressed)
+
+	# Create interaction prompt label (needs CanvasLayer to render over 3D)
+	var interaction_canvas := CanvasLayer.new()
+	interaction_canvas.layer = 10
+	add_child(interaction_canvas)
+	interaction_label = Label.new()
+	interaction_label.text = "Press E to sit"
+	interaction_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	interaction_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	interaction_label.add_theme_font_size_override("font_size", 24)
+	interaction_label.visible = false
+	interaction_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	interaction_label.position = Vector2(-100, -200)
+	interaction_label.size = Vector2(200, 40)
+	interaction_canvas.add_child(interaction_label)
+
+	# Connect movement service signals
+	SteamMovementService.player_stood.connect(_on_player_stood)
+	SteamMovementService.player_sat.connect(_on_player_sat)
+
 	# Connect game state signals for round end
 	Events.game_state_changed.connect(_on_game_state_changed)
-	
+
 	# Setup players
 	setup_players(num_players)
 	
@@ -184,6 +219,19 @@ func _ready() -> void:
 		print("Debug camera preview: %s" % get_seat_label(debug_view_seat_override))
 
 func _input(event: InputEvent) -> void:
+	# Leave seat: Q key or input action
+	var is_leave_seat := event.is_action_pressed("leave_seat")
+	if not is_leave_seat and event is InputEventKey and event.pressed and event.keycode == KEY_Q:
+		is_leave_seat = true
+	if is_leave_seat and not is_local_player_standing:
+		_on_leave_seat_pressed()
+		get_viewport().set_input_as_handled()
+		return
+
+	# Block all card/game interactions while standing
+	if is_local_player_standing:
+		return
+
 	if event is InputEventKey and event.pressed:
 		# Deal cards — host can trigger in multiplayer; local mode uses same key
 		if event.keycode == KEY_ENTER and not is_dealing:
@@ -395,6 +443,9 @@ func setup_players(count: int) -> void:
 	# Create 3D knock buttons (one per player grid)
 	knock_manager.create_buttons()
 
+	# Spawn PlayerBody for each human player
+	_spawn_player_bodies()
+
 	_apply_local_seat_camera_view()
 	_apply_local_seat_lighting()
 	
@@ -425,6 +476,11 @@ func clear_all_players() -> void:
 			player.clear_cards()
 			player.queue_free()
 	
+	for body in player_bodies.values():
+		if is_instance_valid(body):
+			body.queue_free()
+	player_bodies.clear()
+
 	player_grids.clear()
 	players.clear()
 	seat_contexts.clear()
@@ -438,6 +494,8 @@ func flip_all_cards() -> void:
 
 func _on_card_clicked(card: Card3D) -> void:
 	"""Handle card click — dispatch to appropriate component"""
+	if is_local_player_standing:
+		return
 	if GameManager.current_state == GameManager.GameState.PLAYING or GameManager.current_state == GameManager.GameState.KNOCKED:
 		if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 			# Give-card selection takes priority and can happen outside of the player's turn
@@ -482,6 +540,8 @@ func _on_card_clicked(card: Card3D) -> void:
 
 func _on_card_right_clicked(card: Card3D) -> void:
 	"""Handle card right-click — dispatch to match manager"""
+	if is_local_player_standing:
+		return
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		var slot_info := _get_card_slot_info(card)
 		if slot_info.slot >= 0:
@@ -500,6 +560,8 @@ func _reset_match_elevation_after_timeout(card: Card3D) -> void:
 
 func _on_discard_pile_clicked(_pile: CardPile) -> void:
 	"""Handle discard pile click - play card to discard and use ability"""
+	if is_local_player_standing:
+		return
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		# Client: animate own drawn card to discard pile before host confirms
 		if drawn_card and is_instance_valid(drawn_card):
@@ -515,6 +577,8 @@ func _on_discard_pile_clicked(_pile: CardPile) -> void:
 		await round_controller.request_discard_drawn(local_seat_index)
 
 func _on_draw_pile_clicked(_pile: CardPile) -> void:
+	if is_local_player_standing:
+		return
 	"""Handle draw pile click - draw a card"""
 	knock_manager.hide_all_buttons()
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
@@ -824,7 +888,17 @@ func _find_card_owner_idx(card: Card3D) -> int:
 func _on_game_state_changed(state_name: String) -> void:
 	"""React to game state changes — trigger round end flow."""
 	if state_name == "ROUND_END":
+		# Force all standing players back to seated
+		if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+			SteamMovementService.force_sit_all()
+		elif not multiplayer.has_multiplayer_peer():
+			if is_local_player_standing:
+				SteamMovementService.local_sit(local_seat_index)
+		if leave_seat_container:
+			leave_seat_container.visible = false
 		_handle_round_end()
+	elif state_name == "DEALING" or state_name == "INITIAL_VIEWING" or state_name == "PLAYING" or state_name == "KNOCKED":
+		_show_leave_seat_ui()
 
 func _handle_round_end() -> void:
 	"""Execute the full round-end sequence: reveal, score, show UI."""
@@ -858,6 +932,10 @@ func _handle_round_end() -> void:
 
 func _on_play_again_pressed() -> void:
 	"""Start a new round — or return to Steam room in multiplayer."""
+	# Reset movement state
+	SteamMovementService.reset()
+	is_local_player_standing = false
+
 	if multiplayer.has_multiplayer_peer():
 		if SteamRoomService.is_local_host():
 			SteamRoomService.finish_active_round()
@@ -997,3 +1075,125 @@ func _apply_client_swap(old_card: Card3D, slot: int, is_penalty: bool) -> void:
 			new_card.position = grid.card_positions[slot]
 		new_card.base_position = new_card.global_position
 		new_card.rotation = Vector3.ZERO
+
+# ======================================
+# PLAYER MOVEMENT / SIT-STAND SYSTEM
+# ======================================
+
+const CHAIR_POSITIONS: Array[Vector3] = [
+	Vector3(0, 0, 5.5),    # South
+	Vector3(0, 0, -5.5),   # North
+	Vector3(-5.5, 0, 0),   # West
+	Vector3(5.5, 0, 0),    # East
+]
+
+const CHAIR_FACE_DIRECTIONS: Array[Vector3] = [
+	Vector3(0, 0, 1),    # South faces outward (+Z)
+	Vector3(0, 0, -1),   # North faces outward (-Z)
+	Vector3(-1, 0, 0),   # West faces outward (-X)
+	Vector3(1, 0, 0),    # East faces outward (+X)
+]
+
+func _spawn_player_bodies() -> void:
+	for body in player_bodies.values():
+		if is_instance_valid(body):
+			body.queue_free()
+	player_bodies.clear()
+
+	for i in range(num_players):
+		var ctx := seat_contexts[i]
+		if ctx.control_type == SeatContext.SeatControlType.BOT:
+			continue
+
+		var body: PlayerBody = player_body_scene.instantiate()
+		body.name = "PlayerBody_%d" % i
+		add_child(body)
+		var body_peer_id := _get_peer_id_for_seat(i)
+		body.setup(i, body_peer_id, ctx.display_name, players[i].player_color)
+		body.request_sit.connect(_on_body_request_sit)
+		body.request_stand.connect(_on_body_request_stand)
+		body.interaction_label = interaction_label
+		player_bodies[i] = body
+
+func _get_peer_id_for_seat(seat_index: int) -> int:
+	if not multiplayer.has_multiplayer_peer():
+		return 1  # Local mode: authority is always 1
+	var rs := SteamRoomService.get_room_state()
+	for member in rs.members_by_steam_id.values():
+		if member.seat_index == seat_index:
+			return member.peer_id
+	return 1
+
+func _on_leave_seat_pressed() -> void:
+	if is_local_player_standing:
+		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamMovementService.client_request_stand.rpc_id(1)
+	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		# Host stands directly
+		SteamMovementService._standing_seats[local_seat_index] = true
+		SteamMovementService._client_player_stood.rpc(local_seat_index)
+		SteamMovementService._client_player_stood(local_seat_index)
+	else:
+		# Local mode
+		SteamMovementService.local_stand(local_seat_index)
+
+func _on_body_request_sit(target_seat: int) -> void:
+	if not is_local_player_standing:
+		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		SteamMovementService.client_request_sit.rpc_id(1, target_seat)
+	elif multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		SteamMovementService._standing_seats[local_seat_index] = false
+		SteamMovementService._client_player_sat.rpc(local_seat_index, target_seat)
+		SteamMovementService._client_player_sat(local_seat_index, target_seat)
+	else:
+		SteamMovementService.local_sit(local_seat_index)
+
+func _on_body_request_stand() -> void:
+	_on_leave_seat_pressed()
+
+func _on_player_stood(seat_index: int) -> void:
+	var body: PlayerBody = player_bodies.get(seat_index)
+	if body == null:
+		return
+
+	var chair_pos := CHAIR_POSITIONS[seat_index] if seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
+	var face_dir := CHAIR_FACE_DIRECTIONS[seat_index] if seat_index < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+	body.spawn_at_chair(chair_pos, face_dir)
+	body.set_standing(true)
+
+	if seat_index == local_seat_index:
+		is_local_player_standing = true
+		# Switch to FPS camera
+		camera_controller.set_active(false)
+		body.fps_camera.current = true
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		# Hide leave seat button, show nothing (interaction prompt handled by body)
+		if leave_seat_container:
+			leave_seat_container.visible = false
+		# Hide turn UI elements while standing
+		if turn_ui:
+			turn_ui.hide_ui()
+
+func _on_player_sat(seat_index: int, _target_seat: int) -> void:
+	var body: PlayerBody = player_bodies.get(seat_index)
+	if body:
+		body.set_standing(false)
+
+	if seat_index == local_seat_index:
+		is_local_player_standing = false
+		# Switch back to seated camera
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if body:
+			body.fps_camera.current = false
+		camera_controller.set_active(true)
+		_apply_local_seat_camera_view()
+		_apply_local_seat_lighting()
+		# Show leave seat button again
+		if leave_seat_container:
+			leave_seat_container.visible = true
+
+func _show_leave_seat_ui() -> void:
+	if leave_seat_container and not is_local_player_standing:
+		leave_seat_container.visible = true

@@ -29,6 +29,26 @@ var _debug_overlay: CanvasLayer = null
 var _debug_label: RichTextLabel = null
 var _debug_visible: bool = false
 
+# Movement system
+var player_body_scene = preload("res://scenes/players/player_body.tscn")
+var player_body: PlayerBody = null
+var is_standing: bool = false
+var leave_seat_container: Control = null
+var interaction_label: Label = null
+
+const CHAIR_POSITIONS: Array[Vector3] = [
+	Vector3(0, 0, 5.5),    # South
+	Vector3(0, 0, -5.5),   # North
+	Vector3(-5.5, 0, 0),   # West
+	Vector3(5.5, 0, 0),    # East
+]
+const CHAIR_FACE_DIRECTIONS: Array[Vector3] = [
+	Vector3(0, 0, 1),
+	Vector3(0, 0, -1),
+	Vector3(-1, 0, 0),
+	Vector3(1, 0, 0),
+]
+
 func _ready() -> void:
 	_connect_room_service()
 	invite_button.pressed.connect(_on_invite_pressed)
@@ -39,6 +59,8 @@ func _ready() -> void:
 	SteamRoomService.ensure_room_flow_started()
 	_refresh_view()
 	_build_debug_overlay()
+	_setup_movement_ui()
+	_spawn_local_player_body()
 
 func _connect_room_service() -> void:
 	if not SteamRoomService.room_state_changed.is_connected(_on_room_state_changed):
@@ -231,6 +253,15 @@ func _get_seat_color(room_state: RoomState, seat: SeatState) -> Color:
 	return Color(0.8, 0.8, 0.8, 1.0)
 
 func _input(event: InputEvent) -> void:
+	# Leave seat: Q key
+	var is_leave_seat := event.is_action_pressed("leave_seat")
+	if not is_leave_seat and event is InputEventKey and event.pressed and event.keycode == KEY_Q:
+		is_leave_seat = true
+	if is_leave_seat and not is_standing:
+		_on_leave_seat_pressed()
+		get_viewport().set_input_as_handled()
+		return
+
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F3:
 		_toggle_debug_overlay()
 
@@ -284,6 +315,85 @@ func _update_debug_overlay() -> void:
 		else:
 			lines.append("[%s] Empty" % seat.seat_label)
 	_debug_label.text = "\n".join(lines)
+
+## ── Movement system ──────────────────────────────────────────────────────
+
+func _setup_movement_ui() -> void:
+	# Leave seat button
+	var leave_canvas := CanvasLayer.new()
+	leave_canvas.layer = 10
+	add_child(leave_canvas)
+	leave_seat_container = Control.new()
+	leave_seat_container.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	leave_seat_container.offset_left = -80
+	leave_seat_container.offset_top = -80
+	leave_seat_container.offset_right = 80
+	leave_seat_container.offset_bottom = -20
+	leave_canvas.add_child(leave_seat_container)
+	var btn := Button.new()
+	btn.text = "Leave Seat (Q)"
+	btn.set_anchors_preset(Control.PRESET_FULL_RECT)
+	btn.pressed.connect(_on_leave_seat_pressed)
+	leave_seat_container.add_child(btn)
+
+	# Interaction prompt
+	var prompt_canvas := CanvasLayer.new()
+	prompt_canvas.layer = 10
+	add_child(prompt_canvas)
+	interaction_label = Label.new()
+	interaction_label.text = "Press E to sit"
+	interaction_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	interaction_label.add_theme_font_size_override("font_size", 24)
+	interaction_label.visible = false
+	interaction_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	interaction_label.position = Vector2(-100, -200)
+	interaction_label.size = Vector2(200, 40)
+	prompt_canvas.add_child(interaction_label)
+
+func _spawn_local_player_body() -> void:
+	if player_body != null:
+		return
+	player_body = player_body_scene.instantiate()
+	player_body.name = "LocalPlayerBody"
+	add_child(player_body)
+	# In lobby, authority is always local (peer 1)
+	player_body.setup(0, 1, SteamPlatformService.get_local_display_name(), Color(0.4, 0.6, 0.4))
+	player_body.request_sit.connect(_on_body_request_sit)
+	player_body.interaction_label = interaction_label
+
+func _on_leave_seat_pressed() -> void:
+	if is_standing or player_body == null:
+		return
+	var room_state := SteamRoomService.get_room_state()
+	var seat_index := room_state.get_local_seat_index(SteamPlatformService.get_local_steam_id())
+	if seat_index < 0:
+		seat_index = 0
+
+	is_standing = true
+	var chair_pos := CHAIR_POSITIONS[seat_index] if seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
+	var face_dir := CHAIR_FACE_DIRECTIONS[seat_index] if seat_index < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+	player_body.spawn_at_chair(chair_pos, face_dir)
+	player_body.set_standing(true)
+
+	# Switch camera
+	camera_controller.set_active(false)
+	player_body.fps_camera.current = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	leave_seat_container.visible = false
+
+func _on_body_request_sit(_target_seat: int) -> void:
+	if not is_standing or player_body == null:
+		return
+	is_standing = false
+	player_body.set_standing(false)
+	player_body.fps_camera.current = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	camera_controller.set_active(true)
+	var room_state := SteamRoomService.get_room_state()
+	_apply_local_view(room_state)
+	leave_seat_container.visible = true
+
+## ── Lobby actions ────────────────────────────────────────────────────────
 
 func _on_invite_pressed() -> void:
 	invite_button.disabled = true

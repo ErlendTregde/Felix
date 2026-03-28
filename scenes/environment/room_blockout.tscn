@@ -70,6 +70,15 @@ emission_enabled = true
 emission = Color(1, 0.85, 0.5, 1)
 emission_energy_multiplier = 6.0
 
+[sub_resource type="BoxShape3D" id="shape_floor"]
+size = Vector3(40, 0.1, 40)
+
+[sub_resource type="BoxShape3D" id="shape_wall_ns"]
+size = Vector3(40.4, 14, 0.2)
+
+[sub_resource type="BoxShape3D" id="shape_wall_ew"]
+size = Vector3(0.2, 14, 40.4)
+
 [node name="RoomBlockout" type="Node3D" unique_id=1939115936]
 
 [node name="Floor" type="MeshInstance3D" parent="." unique_id=1981500426]
@@ -185,3 +194,33 @@ omni_range = 10.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9, 4)
 light_color = Color(0.85, 0.7, 0.45, 1)
 omni_range = 8.0
+
+[node name="FloorCollision" type="StaticBody3D" parent="." unique_id=132749129]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloorCollision" unique_id=671774609]
+shape = SubResource("shape_floor")
+
+[node name="WallNorthCollision" type="StaticBody3D" parent="." unique_id=367254625]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7, -20)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallNorthCollision" unique_id=655051749]
+shape = SubResource("shape_wall_ns")
+
+[node name="WallSouthCollision" type="StaticBody3D" parent="." unique_id=636780348]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7, 20)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallSouthCollision" unique_id=2074549350]
+shape = SubResource("shape_wall_ns")
+
+[node name="WallEastCollision" type="StaticBody3D" parent="." unique_id=1177895935]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 7, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallEastCollision" unique_id=1208998576]
+shape = SubResource("shape_wall_ew")
+
+[node name="WallWestCollision" type="StaticBody3D" parent="." unique_id=433276750]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -20, 7, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallWestCollision" unique_id=1115260037]
+shape = SubResource("shape_wall_ew")

@@ -105,6 +105,12 @@ func _reset_look_offsets() -> void:
 	_current_yaw = 0.0
 	_current_pitch = 0.0
 
+func set_active(enabled: bool) -> void:
+	set_process(enabled)
+	set_process_input(enabled)
+	if camera:
+		camera.current = enabled
+
 func _store_current_transform_as_base() -> void:
 	_base_transform = camera.transform
 	original_position = camera.position

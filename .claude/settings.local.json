@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(godot|md|txt|cfg\\)$\")",
+      "Bash(wc -l /d/godot/felix/scripts/*.gd)"
+    ]
+  }
+}
