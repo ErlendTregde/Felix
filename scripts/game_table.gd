@@ -478,6 +478,7 @@ func clear_all_players() -> void:
 	
 	for body in player_bodies.values():
 		if is_instance_valid(body):
+			body.get_parent().remove_child(body)
 			body.queue_free()
 	player_bodies.clear()
 
@@ -1097,6 +1098,7 @@ const CHAIR_FACE_DIRECTIONS: Array[Vector3] = [
 func _spawn_player_bodies() -> void:
 	for body in player_bodies.values():
 		if is_instance_valid(body):
+			body.get_parent().remove_child(body)
 			body.queue_free()
 	player_bodies.clear()
 
@@ -1107,7 +1109,7 @@ func _spawn_player_bodies() -> void:
 			continue
 
 		var body: PlayerBody = player_body_scene.instantiate()
-		body.name = "PlayerBody_%d" % i
+		body.name = "PlayerBody_Seat%d" % i
 		add_child(body)
 		var body_peer_id := _get_peer_id_for_seat(i)
 		var body_is_local := (i == local_seat_index)

@@ -352,18 +352,30 @@ func _spawn_all_player_bodies() -> void:
 	if local_seat_index < 0:
 		local_seat_index = 0
 
-	# Build set of occupied seat indices
-	var occupied_seats: Dictionary = {}
+	# Build set of occupied seat indices with their current peer_id
+	var occupied_seats: Dictionary = {}  # seat_index -> SeatState
+	var seat_peer_ids: Dictionary = {}   # seat_index -> peer_id
 	for seat in room_state.seat_states:
 		if seat.is_occupied():
 			occupied_seats[seat.seat_index] = seat
+			var member = room_state.get_member(seat.occupant_steam_id)
+			seat_peer_ids[seat.seat_index] = member.peer_id if member != null and member.peer_id > 0 else 1
 
-	# Remove bodies for seats that are no longer occupied
+	# Remove bodies for seats that are no longer occupied,
+	# or re-create if peer_id changed (authority needs updating)
 	for seat_idx in player_bodies.keys():
+		var body: PlayerBody = player_bodies[seat_idx]
 		if not occupied_seats.has(seat_idx):
-			var body: PlayerBody = player_bodies[seat_idx]
 			if is_instance_valid(body):
+				body.get_parent().remove_child(body)
 				body.queue_free()
+			player_bodies.erase(seat_idx)
+			if seat_idx == local_seat_index:
+				local_body = null
+		elif is_instance_valid(body) and body.peer_id != seat_peer_ids.get(seat_idx, 1):
+			# Peer ID changed — remove so it gets re-created with correct authority
+			body.get_parent().remove_child(body)
+			body.queue_free()
 			player_bodies.erase(seat_idx)
 			if seat_idx == local_seat_index:
 				local_body = null
@@ -373,15 +385,15 @@ func _spawn_all_player_bodies() -> void:
 	for seat_idx in occupied_seats:
 		init_seats.append(seat_idx)
 		if player_bodies.has(seat_idx):
-			continue  # Already spawned
+			continue  # Already spawned with correct peer_id
 		var seat: SeatState = occupied_seats[seat_idx]
-		var member = room_state.get_member(seat.occupant_steam_id)
-		var body_peer_id: int = member.peer_id if member != null and member.peer_id > 0 else 1
+		var body_peer_id: int = seat_peer_ids[seat_idx]
 		var body_is_local: bool = (seat_idx == local_seat_index)
 		var color := _get_seat_color(room_state, seat)
 
 		var body: PlayerBody = player_body_scene.instantiate()
-		body.name = "LobbyBody_%d" % body_peer_id
+		# Name by seat_index so both peers have the same node path
+		body.name = "LobbyBody_Seat%d" % seat_idx
 		add_child(body)
 		body.setup(seat_idx, body_peer_id, seat.display_name, color, body_is_local)
 		body.request_sit.connect(_on_body_request_sit)
