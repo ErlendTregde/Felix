@@ -222,7 +222,7 @@ func _route_incoming_voice_packet(packet: Dictionary) -> void:
 	if _steam == null:
 		return
 
-	var sender_steam_id: int = int(packet.get("remote_steam_id", 0))
+	var sender_steam_id: int = int(packet.get("steam_id_remote", packet.get("remote_steam_id", 0)))
 	if sender_steam_id <= 0 or sender_steam_id == SteamPlatformService.get_local_steam_id():
 		return
 
