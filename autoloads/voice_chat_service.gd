@@ -19,16 +19,18 @@ var _local_seat_index: int = -1
 # Steam API reference
 var _steam = null
 
-# Polling
-const VOICE_POLL_INTERVAL: float = 0.02  # 50Hz — matches 20ms Opus frames
-const VOICE_SAMPLE_RATE: int = 48000
-var _poll_timer: float = 0.0
+# Sample rate — fetched from Steam at startup for best quality
+var _sample_rate: int = 48000
 
 func _ready() -> void:
 	_steam = Engine.get_singleton("Steam") if Engine.has_singleton("Steam") else null
+	if _steam != null and _steam.has_method("getVoiceOptimalSampleRate"):
+		var rate: int = _steam.getVoiceOptimalSampleRate()
+		if rate > 0:
+			_sample_rate = rate
 	FelixNetworkSession.player_left.connect(_on_player_left)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if not _is_recording or _steam == null:
 		return
 	if _is_muted:
@@ -36,11 +38,8 @@ func _process(delta: float) -> void:
 	if _push_to_talk and not _ptt_held:
 		return
 
-	_poll_timer += delta
-	if _poll_timer < VOICE_POLL_INTERVAL:
-		return
-	_poll_timer = 0.0
-
+	# Poll every frame — Steam internally buffers ~20ms Opus frames.
+	# Calling getVoice() once per frame at 60fps drains them with minimal latency.
 	var voice_data: Dictionary = _steam.getVoice()
 	if voice_data.get("result", -1) == 0 and voice_data.get("written", 0) > 0:
 		_broadcast_voice.rpc(voice_data["buffer"], _local_seat_index)
@@ -68,7 +67,6 @@ func start_voice() -> void:
 	if not _push_to_talk:
 		_steam.startVoiceRecording()
 	_is_recording = true
-	_poll_timer = 0.0
 
 func stop_voice() -> void:
 	if _steam != null:
@@ -106,16 +104,17 @@ func set_push_to_talk(enabled: bool) -> void:
 	if _steam == null or not _is_recording:
 		return
 	if enabled:
-		# Switch to PTT: stop recording until key is held
 		_steam.stopVoiceRecording()
 		_ptt_held = false
 	else:
-		# Switch to open mic: start recording immediately
 		if not _is_muted:
 			_steam.startVoiceRecording()
 
 func is_push_to_talk() -> bool:
 	return _push_to_talk
+
+func get_sample_rate() -> int:
+	return _sample_rate
 
 # ---------------------------------------------------------------------------
 # RPC — voice data transport (unreliable_ordered on channel 2)
@@ -126,7 +125,7 @@ func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int) -> voi
 	if _steam == null:
 		return
 
-	var pcm: Dictionary = _steam.decompressVoice(compressed_data, VOICE_SAMPLE_RATE)
+	var pcm: Dictionary = _steam.decompressVoice(compressed_data, _sample_rate)
 	if pcm.get("result", -1) != 0 or pcm.get("size", 0) <= 0:
 		return
 
@@ -140,7 +139,6 @@ func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int) -> voi
 # ---------------------------------------------------------------------------
 
 func _on_player_left(peer_id: int, steam_id: int) -> void:
-	# Find which seat this peer occupied and unregister
 	var room_state = SteamRoomService.get_room_state()
 	if room_state == null:
 		return

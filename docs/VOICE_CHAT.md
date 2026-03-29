@@ -108,7 +108,7 @@ Each remote player has a `VoicePlayer3D` node (extends `AudioStreamPlayer3D`) at
 Godot's built-in 3D audio handles:
 - **Spatialization**: Audio pans left/right based on the speaker's position relative to the listener
 - **Distance attenuation**: Volume decreases with distance using inverse distance model
-- **Max distance**: Beyond 40 units, the voice is inaudible
+- **Max distance**: Beyond 70 units, the voice is inaudible
 
 ### 5. Occlusion
 
@@ -127,8 +127,8 @@ These can be adjusted in `scripts/voice_player_3d.gd`:
 
 | Property | Default | Description |
 |----------|---------|-------------|
-| `max_distance` | 40.0 | Maximum audible distance (units) |
-| `unit_size` | 5.0 | Reference distance for volume normalization |
+| `max_distance` | 70.0 | Maximum audible distance (units) |
+| `unit_size` | 8.0 | Reference distance for volume normalization |
 | `attenuation_model` | `INVERSE_DISTANCE` | How volume decreases with distance |
 | `max_db` | 6.0 | Maximum volume boost at close range |
 | `OCCLUDED_VOLUME_REDUCTION` | 12.0 dB | Volume reduction when occluded by a wall |

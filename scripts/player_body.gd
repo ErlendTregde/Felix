@@ -19,6 +19,9 @@ var mouse_rotation: Vector2 = Vector2.ZERO  # x = yaw, y = pitch
 var player_display_name: String = ""
 var nearby_chair_seat_index: int = -1
 
+# Voice indicator
+var _talk_indicator: Label3D = null
+
 # Remote interpolation
 var _remote_target_pos: Vector3 = Vector3.ZERO
 var _remote_target_rot_y: float = 0.0
@@ -43,6 +46,19 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 	set_multiplayer_authority(peer_id)
 
 	name_label.text = p_display_name
+
+	# Voice talking indicator — positioned to the right of the name label
+	_talk_indicator = Label3D.new()
+	_talk_indicator.name = "TalkIndicator"
+	_talk_indicator.text = ")))"
+	_talk_indicator.font_size = 24
+	_talk_indicator.outline_size = 6
+	_talk_indicator.modulate = Color(0.3, 1.0, 0.3, 1.0)  # Green tint
+	_talk_indicator.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_talk_indicator.no_depth_test = true
+	_talk_indicator.position = Vector3(0, 12.3, 0)  # Above the name label
+	_talk_indicator.visible = false
+	add_child(_talk_indicator)
 
 	# Color the avatar
 	var mat := StandardMaterial3D.new()
@@ -192,3 +208,7 @@ func _update_chair_detection() -> void:
 			interaction_label.visible = true
 		elif nearby_chair_seat_index < 0 and prev_nearby >= 0:
 			interaction_label.visible = false
+
+func set_talking_indicator(talking: bool) -> void:
+	if _talk_indicator != null:
+		_talk_indicator.visible = talking
