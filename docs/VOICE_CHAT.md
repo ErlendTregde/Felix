@@ -31,16 +31,16 @@ Felix uses **proximity voice chat** to let players hear each other based on 3D d
    (compressed Opus bytes)            Steam.decompressVoice()
      |                                       ^
      v                                       |
- _broadcast_voice.rpc() ----[network]----> _broadcast_voice()
-   (unreliable_ordered, channel 2)
+ Steam.sendP2PPacket() ----[network]----> Steam.readP2PPacket()
+   (unreliable, channel 1)
 ```
 
 ### Components
 
 | Component | File | Role |
 |-----------|------|------|
-| **VoiceChatService** | `autoloads/voice_chat_service.gd` | Central manager autoload. Handles mic capture, RPC broadcast, receive routing, mute/PTT. |
-| **VoicePlayer3D** | `scripts/voice_player_3d.gd` | Per-remote-player node. AudioStreamPlayer3D with AudioStreamGenerator for 3D playback + occlusion. |
+| **VoiceChatService** | `autoloads/voice_chat_service.gd` | Central manager autoload. Handles mic capture, Steam P2P packet send/read, receive routing, mute/PTT. |
+| **VoicePlayer3D** | `scripts/voice_player_3d.gd` | Per-remote-player node. AudioStreamPlayer3D with AudioStreamGenerator, bounded jitter queue, and occlusion. |
 | **Voice Bus** | `default_bus_layout.tres` | Dedicated audio bus with limiter and high-pass filter. |
 
 ---
@@ -83,27 +83,23 @@ Felix uses **proximity voice chat** to let players hear each other based on 3D d
 
 When a player enters a multiplayer scene (steam_room or game_table), `VoiceChatService.start_voice()` is called. This tells Steam to begin recording from the microphone using `Steam.startVoiceRecording()`.
 
-Every ~20ms (50Hz), the service polls `Steam.getAvailableVoice()` on a fixed physics tick. If voice data is available, it calls `Steam.getVoice()` which returns **compressed Opus audio** as a `PackedByteArray`. This is extremely bandwidth-efficient (~3-6 KB/s compared to ~192 KB/s for raw PCM).
+Every ~20ms, the service polls `Steam.getAvailableVoice()` / `Steam.getVoice()` and trims the returned buffer to the exact `written` byte count before sending. That matters because Steam's voice buffers are often larger than the valid payload, and forwarding the padded tail can make speech sound robotic or gritty.
 
 ### 2. Network Transport
 
-The compressed voice data is sent to all peers via an RPC:
+Compressed voice is sent directly over Steam P2P with `Steam.sendP2PPacket()` on a dedicated voice channel, and received with `Steam.readP2PPacket()`.
 
-```gdscript
-@rpc("any_peer", "call_remote", "unreliable_ordered", 2)
-func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int)
-```
-
-- **`unreliable_ordered`**: Voice is latency-sensitive and tolerates packet loss, but must arrive in order to avoid garbled playback.
-- **Channel 2**: Dedicated channel to avoid competing with room RPCs (ch 0) and gameplay RPCs (ch 1).
+- **Direct Steam P2P**: avoids relaying voice through Godot scene RPCs, which adds extra latency and jitter.
+- **`P2P_SEND_UNRELIABLE_NO_DELAY`**: keeps voice low-latency and drops late packets instead of stalling playback behind them.
+- **Dedicated channel 1**: keeps voice traffic isolated from gameplay/state traffic.
 
 ### 3. Decompression & Routing
 
-On the receiving end, `Steam.decompressVoice()` converts the Opus bytes back to 16-bit PCM audio at 48000 Hz. The PCM data is routed to the correct `VoicePlayer3D` node based on `sender_seat` index.
+On the receiving end, `Steam.decompressVoice()` converts the Opus bytes back to 16-bit PCM audio at the current optimal sample rate. The decompressed buffer is resized to the exact `size` returned by Steam before playback, then routed to the correct `VoicePlayer3D` using the sender's Steam ID -> room seat mapping.
 
 ### 4. 3D Playback
 
-Each remote player has a `VoicePlayer3D` node (extends `AudioStreamPlayer3D`) attached to their `PlayerBody` at head height (Y=10). It uses an `AudioStreamGenerator` plus a small jitter queue so bursts, packet jitter, and brief stalls do not immediately underrun playback.
+Each remote player has a `VoicePlayer3D` node (extends `AudioStreamPlayer3D`) attached to their `PlayerBody` at head height (Y=10). It uses an `AudioStreamGenerator` plus a bounded PCM queue with a short startup prefill, so brief packet jitter does not immediately underrun playback, while stale queued audio is trimmed before it turns into noticeable voice lag.
 
 Godot's built-in 3D audio handles:
 - **Spatialization**: Audio pans left/right based on the speaker's position relative to the listener
@@ -140,7 +136,7 @@ These can be adjusted in `scripts/voice_player_3d.gd`:
 | Property | Default | Description |
 |----------|---------|-------------|
 | `_push_to_talk` | `false` | `false` = open mic, `true` = hold V to talk |
-| `VOICE_POLL_INTERVAL` | 0.02s | How often to poll Steam for voice data |
+| `VOICE_POLL_INTERVAL` | 0.02s | How often to poll Steam for outgoing voice data |
 | `VOICE_SAMPLE_RATE` | 48000 | PCM sample rate for decompression |
 
 ### Switching to Push-to-Talk
@@ -189,8 +185,9 @@ If no microphone is available, `Steam.getAvailableVoice()` returns a non-zero st
 
 ### Buffer Management
 
-- **Underrun** (no data arriving): `VoicePlayer3D` re-enters a short prefill phase after a skip so playback restarts with a small cushion instead of a single late packet.
-- **Overrun** (too much data): voice chunks are queued first, then drained toward a target playback buffer. If latency grows too large, stale queued audio is trimmed so speech stays near real time.
+- **Underrun** (no data arriving): `VoicePlayer3D` waits for a short prefill before restarting playback, which smooths over single late packets.
+- **Soft overrun** (queued audio grows): old queued PCM is dropped back toward the target latency instead of letting speech fall behind real time.
+- **Hard overrun** (generator + queue grow too large): the playback buffer is cleared and refilled from the newest audio so voice stays current instead of becoming noticeably delayed.
 
 ---
 
@@ -207,7 +204,7 @@ If no microphone is available, `Steam.getAvailableVoice()` returns a non-zero st
 ### Voice is choppy or delayed
 
 1. Check network quality between peers (Steam P2P handles NAT traversal)
-2. Try increasing `VoicePlayer3D.GENERATOR_BUFFER_LENGTH_SECONDS` (default: 0.25s) if your players have unusually jittery connections
+2. Try increasing `VoicePlayer3D.GENERATOR_BUFFER_LENGTH_SECONDS` (default: 0.12s) if your players have unusually jittery connections
 3. Ensure `VOICE_POLL_INTERVAL` is not set too high (default: 0.02s = 50Hz)
 
 ### Echo / feedback

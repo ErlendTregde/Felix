@@ -6,7 +6,11 @@ class_name VoicePlayer3D
 ## for spatialized playback. Includes optional raycast-based occlusion.
 
 const SILENCE_THRESHOLD: float = 0.25  # seconds without data = not talking
-const GENERATOR_BUFFER_LENGTH_SECONDS: float = 0.25
+const GENERATOR_BUFFER_LENGTH_SECONDS: float = 0.12
+const PREFILL_SECONDS: float = 0.04
+const TARGET_BUFFER_SECONDS: float = 0.08
+const QUEUED_AUDIO_SOFT_LIMIT_SECONDS: float = 0.12
+const TOTAL_BUFFER_HARD_LIMIT_SECONDS: float = 0.18
 
 const OCCLUDED_VOLUME_REDUCTION: float = 12.0  # dB
 const OCCLUDED_FILTER_CUTOFF: float = 2000.0   # Hz (muffled)
@@ -23,6 +27,10 @@ var _is_talking: bool = false
 
 # Reusable buffer to avoid per-call allocation
 var _frame_buffer: PackedVector2Array = PackedVector2Array()
+var _pending_pcm_chunks: Array[PackedByteArray] = []
+var _pending_chunk_offset_bytes: int = 0
+var _queued_pcm_bytes: int = 0
+var _needs_prefill: bool = true
 
 # Occlusion
 var _occlusion_enabled: bool = true
@@ -57,12 +65,13 @@ func _ready() -> void:
 		_setup_occlusion_ray()
 
 func _process(delta: float) -> void:
+	_ensure_playback_ready()
+	_drain_queued_audio()
+
 	_silence_timer += delta
-	if _is_talking and _silence_timer > SILENCE_THRESHOLD:
-		_is_talking = false
-		var body := get_parent()
-		if body != null and body.has_method("set_talking_indicator"):
-			body.set_talking_indicator(false)
+	if _is_talking and _silence_timer > SILENCE_THRESHOLD and _get_total_buffered_frames() == 0:
+		_set_talking_indicator(false)
+		_needs_prefill = true
 
 func _physics_process(delta: float) -> void:
 	_ensure_playback_ready()
@@ -89,32 +98,24 @@ func _physics_process(delta: float) -> void:
 ## Push decompressed PCM audio data into the generator playback buffer.
 ## [param pcm_data] is a PackedByteArray of 16-bit signed mono PCM samples.
 func push_audio(pcm_data: PackedByteArray) -> void:
-	_ensure_playback_ready()
-	if _playback == null:
+	if pcm_data.is_empty():
 		return
 
-	var frame_count: int = pcm_data.size() / 2
-	if frame_count == 0:
+	var chunk := pcm_data
+	if chunk.size() < 2:
 		return
+	if chunk.size() % 2 != 0:
+		chunk.resize(chunk.size() - 1)
+		if chunk.size() < 2:
+			return
 
-	var available: int = _playback.get_frames_available()
-	if available <= 0:
-		return
-	if frame_count > available:
-		frame_count = available
+	_pending_pcm_chunks.append(chunk)
+	_queued_pcm_bytes += chunk.size()
 
-	_frame_buffer.resize(frame_count)
-	for i in frame_count:
-		var sample: float = pcm_data.decode_s16(i * 2) / 32768.0
-		_frame_buffer[i] = Vector2(sample, sample)
-	_playback.push_buffer(_frame_buffer)
-
-	if not _is_talking:
-		_is_talking = true
-		var body := get_parent()
-		if body != null and body.has_method("set_talking_indicator"):
-			body.set_talking_indicator(true)
+	_trim_latency_if_needed()
+	_set_talking_indicator(true)
 	_silence_timer = 0.0
+	_drain_queued_audio()
 
 func _ensure_playback_ready() -> void:
 	if _playback != null:
@@ -122,6 +123,115 @@ func _ensure_playback_ready() -> void:
 	if not playing:
 		play()
 	_playback = get_stream_playback()
+
+func _drain_queued_audio() -> void:
+	if _playback == null or _queued_pcm_bytes < 2:
+		return
+
+	var queued_frames := _get_queued_frames()
+	var prefill_frames := _seconds_to_frames(PREFILL_SECONDS)
+	if _needs_prefill or _get_generator_buffered_frames() == 0:
+		if queued_frames < prefill_frames:
+			_needs_prefill = true
+			return
+		_needs_prefill = false
+
+	var available_frames: int = _playback.get_frames_available()
+	if available_frames <= 0:
+		return
+
+	var frames_to_push := mini(available_frames, queued_frames)
+	if frames_to_push <= 0:
+		return
+
+	_frame_buffer.resize(frames_to_push)
+	var written_frames := 0
+	while written_frames < frames_to_push and not _pending_pcm_chunks.is_empty():
+		var chunk: PackedByteArray = _pending_pcm_chunks[0]
+		var chunk_bytes_available: int = chunk.size() - _pending_chunk_offset_bytes
+		if chunk_bytes_available < 2:
+			_pending_pcm_chunks.remove_at(0)
+			_pending_chunk_offset_bytes = 0
+			continue
+
+		var chunk_frames_available: int = chunk_bytes_available / 2
+		var frames_from_chunk := mini(frames_to_push - written_frames, chunk_frames_available)
+		for i in range(frames_from_chunk):
+			var byte_index := _pending_chunk_offset_bytes + (i * 2)
+			var sample: float = chunk.decode_s16(byte_index) / 32768.0
+			_frame_buffer[written_frames + i] = Vector2(sample, sample)
+
+		var consumed_bytes := frames_from_chunk * 2
+		written_frames += frames_from_chunk
+		_pending_chunk_offset_bytes += consumed_bytes
+		_queued_pcm_bytes = maxi(_queued_pcm_bytes - consumed_bytes, 0)
+
+		if _pending_chunk_offset_bytes >= chunk.size():
+			_pending_pcm_chunks.remove_at(0)
+			_pending_chunk_offset_bytes = 0
+
+	if written_frames <= 0:
+		return
+
+	if written_frames < frames_to_push:
+		_frame_buffer.resize(written_frames)
+	_playback.push_buffer(_frame_buffer)
+
+func _trim_latency_if_needed() -> void:
+	var soft_limit_frames := _seconds_to_frames(QUEUED_AUDIO_SOFT_LIMIT_SECONDS)
+	if _get_queued_frames() > soft_limit_frames:
+		_trim_queued_audio_to_frames(_seconds_to_frames(TARGET_BUFFER_SECONDS))
+
+	if _get_total_buffered_frames() <= _seconds_to_frames(TOTAL_BUFFER_HARD_LIMIT_SECONDS):
+		return
+
+	if _playback != null and _playback.has_method("clear_buffer"):
+		_playback.clear_buffer()
+	_trim_queued_audio_to_frames(_seconds_to_frames(TARGET_BUFFER_SECONDS))
+	_needs_prefill = true
+
+func _trim_queued_audio_to_frames(target_frames: int) -> void:
+	var target_bytes := maxi(target_frames, 0) * 2
+	if _queued_pcm_bytes <= target_bytes:
+		return
+
+	var bytes_to_drop := _queued_pcm_bytes - target_bytes
+	while bytes_to_drop > 0 and not _pending_pcm_chunks.is_empty():
+		var chunk: PackedByteArray = _pending_pcm_chunks[0]
+		var chunk_bytes_available: int = chunk.size() - _pending_chunk_offset_bytes
+		if chunk_bytes_available <= bytes_to_drop:
+			bytes_to_drop -= chunk_bytes_available
+			_queued_pcm_bytes = maxi(_queued_pcm_bytes - chunk_bytes_available, 0)
+			_pending_pcm_chunks.remove_at(0)
+			_pending_chunk_offset_bytes = 0
+			continue
+
+		_pending_chunk_offset_bytes += bytes_to_drop
+		_queued_pcm_bytes = maxi(_queued_pcm_bytes - bytes_to_drop, 0)
+		bytes_to_drop = 0
+
+func _get_queued_frames() -> int:
+	return _queued_pcm_bytes / 2
+
+func _get_generator_buffered_frames() -> int:
+	if _playback == null or _generator == null:
+		return 0
+	return maxi(_seconds_to_frames(_generator.buffer_length) - _playback.get_frames_available(), 0)
+
+func _get_total_buffered_frames() -> int:
+	return _get_queued_frames() + _get_generator_buffered_frames()
+
+func _seconds_to_frames(seconds: float) -> int:
+	return maxi(ceili(seconds * float(_mix_rate)), 0)
+
+func _set_talking_indicator(is_active: bool) -> void:
+	if _is_talking == is_active:
+		return
+
+	_is_talking = is_active
+	var body := get_parent()
+	if body != null and body.has_method("set_talking_indicator"):
+		body.set_talking_indicator(is_active)
 
 func _setup_occlusion_ray() -> void:
 	_occlusion_ray = RayCast3D.new()
