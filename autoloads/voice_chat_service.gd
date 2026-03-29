@@ -46,7 +46,7 @@ func _process(_delta: float) -> void:
 	# Calling getVoice() once per frame at 60fps drains them with minimal latency.
 	var voice_data: Dictionary = _steam.getVoice()
 	if voice_data.get("result", -1) == 0 and voice_data.get("written", 0) > 0:
-		_broadcast_voice.rpc(voice_data["buffer"], _local_seat_index)
+		_broadcast_voice.rpc(voice_data["buffer"].slice(0, voice_data["written"]), _local_seat_index)
 
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("voice_toggle_mute"):
@@ -143,7 +143,7 @@ func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int) -> voi
 
 	var player = _voice_players.get(sender_seat)
 	if player != null and is_instance_valid(player):
-		player.push_audio(pcm["uncompressed"])
+		player.push_audio(pcm["uncompressed"].slice(0, pcm["size"]))
 		player_talking.emit(sender_seat, true)
 
 # ---------------------------------------------------------------------------
