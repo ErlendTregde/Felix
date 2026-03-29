@@ -29,6 +29,8 @@ func _ready() -> void:
 		if rate > 0:
 			_sample_rate = rate
 	FelixNetworkSession.player_left.connect(_on_player_left)
+	FelixNetworkSession.host_disconnected.connect(stop_voice)
+	FelixNetworkSession.connection_failed.connect(stop_voice)
 
 func _process(_delta: float) -> void:
 	if not _is_recording or _steam == null:
@@ -36,6 +38,8 @@ func _process(_delta: float) -> void:
 	if _is_muted:
 		return
 	if _push_to_talk and not _ptt_held:
+		return
+	if not _can_broadcast_voice():
 		return
 
 	# Poll every frame — Steam internally buffers ~20ms Opus frames.
@@ -115,6 +119,14 @@ func is_push_to_talk() -> bool:
 
 func get_sample_rate() -> int:
 	return _sample_rate
+
+func _can_broadcast_voice() -> bool:
+	if _local_seat_index < 0:
+		return false
+	if not multiplayer.has_multiplayer_peer():
+		return false
+	var peer := multiplayer.multiplayer_peer
+	return peer != null and peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 # ---------------------------------------------------------------------------
 # RPC — voice data transport (unreliable_ordered on channel 2)
