@@ -99,6 +99,9 @@ func _process(delta: float) -> void:
 
 func activate_fps_camera() -> void:
 	"""Make this body's FPS camera the active viewport camera. Only call for local player."""
+	if not is_local:
+		push_warning("BUG: activate_fps_camera called on remote body (seat %d, peer %d)" % [seat_index, peer_id])
+		return
 	if fps_camera:
 		fps_camera.make_current()
 
