@@ -21,10 +21,6 @@ var _steam = null
 
 # Sample rate — fetched from Steam at startup for best quality
 var _sample_rate: int = 48000
-# Decompression rate — lower than capture rate to reduce GDScript processing load.
-# 24kHz is plenty for voice (exceeds HD voice at 16kHz). Godot upsamples 24000→48000
-# which is a clean 2x integer ratio with no artifacts.
-var _decompress_rate: int = 24000
 
 func _ready() -> void:
 	_steam = Engine.get_singleton("Steam") if Engine.has_singleton("Steam") else null
@@ -124,9 +120,6 @@ func is_push_to_talk() -> bool:
 func get_sample_rate() -> int:
 	return _sample_rate
 
-func get_decompress_rate() -> int:
-	return _decompress_rate
-
 func _can_broadcast_voice() -> bool:
 	if _local_seat_index < 0:
 		return false
@@ -144,7 +137,7 @@ func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int) -> voi
 	if _steam == null:
 		return
 
-	var pcm: Dictionary = _steam.decompressVoice(compressed_data, _decompress_rate)
+	var pcm: Dictionary = _steam.decompressVoice(compressed_data, _sample_rate)
 	if pcm.get("result", -1) != 0 or pcm.get("size", 0) <= 0:
 		return
 
