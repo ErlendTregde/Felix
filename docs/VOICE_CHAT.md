@@ -31,15 +31,15 @@ Felix uses **proximity voice chat** to let players hear each other based on 3D d
    (compressed Opus bytes)            Steam.decompressVoice()
      |                                       ^
      v                                       |
- Steam.sendP2PPacket() ----[network]----> Steam.readP2PPacket()
-   (unreliable, channel 1)
+ _broadcast_voice.rpc() ----[network]----> _broadcast_voice()
+   (unreliable_ordered, channel 2)
 ```
 
 ### Components
 
 | Component | File | Role |
 |-----------|------|------|
-| **VoiceChatService** | `autoloads/voice_chat_service.gd` | Central manager autoload. Handles mic capture, Steam P2P packet send/read, receive routing, mute/PTT. |
+| **VoiceChatService** | `autoloads/voice_chat_service.gd` | Central manager autoload. Handles mic capture, RPC transport, receive routing, mute/PTT. |
 | **VoicePlayer3D** | `scripts/voice_player_3d.gd` | Per-remote-player node. AudioStreamPlayer3D with AudioStreamGenerator, bounded jitter queue, and occlusion. |
 | **Voice Bus** | `default_bus_layout.tres` | Dedicated audio bus with limiter and high-pass filter. |
 
@@ -87,11 +87,16 @@ Every ~20ms, the service polls `Steam.getAvailableVoice()` / `Steam.getVoice()` 
 
 ### 2. Network Transport
 
-Compressed voice is sent directly over Steam P2P with `Steam.sendP2PPacket()` on a dedicated voice channel, and received with `Steam.readP2PPacket()`.
+Compressed voice is currently sent over a dedicated scene RPC:
 
-- **Direct Steam P2P**: avoids relaying voice through Godot scene RPCs, which adds extra latency and jitter.
-- **`P2P_SEND_UNRELIABLE_NO_DELAY`**: keeps voice low-latency and drops late packets instead of stalling playback behind them.
-- **Dedicated channel 1**: keeps voice traffic isolated from gameplay/state traffic.
+```gdscript
+@rpc("any_peer", "call_remote", "unreliable_ordered", 2)
+func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int)
+```
+
+- **`unreliable_ordered`**: keeps latency lower than reliable delivery while preserving packet order.
+- **Channel 2**: isolates voice from room/gameplay RPC traffic.
+- **Important quality fix**: the outgoing compressed buffer is resized to the exact `written` byte count before the RPC is sent, so padded tail bytes do not get forwarded.
 
 ### 3. Decompression & Routing
 
