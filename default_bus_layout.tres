@@ -1,9 +1,18 @@
 [gd_resource type="AudioBusLayout" format=3 uid="uid://cltknejsrrnco"]
 
-[sub_resource type="AudioEffectLimiter" id="AudioEffectLimiter_1"]
-
 [sub_resource type="AudioEffectHighPassFilter" id="AudioEffectHighPassFilter_1"]
-cutoff_hz = 80.0
+cutoff_hz = 120.0
+
+[sub_resource type="AudioEffectCompressor" id="AudioEffectCompressor_1"]
+threshold = -18.0
+ratio = 3.0
+gain = 4.0
+attack_us = 10.0
+release_ms = 100.0
+
+[sub_resource type="AudioEffectLimiter" id="AudioEffectLimiter_1"]
+ceiling_db = -1.0
+threshold_db = -6.0
 
 [resource]
 bus/1/name = &"Voice"
@@ -12,7 +21,9 @@ bus/1/mute = false
 bus/1/bypass_fx = false
 bus/1/volume_db = 0.0
 bus/1/send = &"Master"
-bus/1/effect/0/effect = SubResource("AudioEffectLimiter_1")
+bus/1/effect/0/effect = SubResource("AudioEffectHighPassFilter_1")
 bus/1/effect/0/enabled = true
-bus/1/effect/1/effect = SubResource("AudioEffectHighPassFilter_1")
+bus/1/effect/1/effect = SubResource("AudioEffectCompressor_1")
 bus/1/effect/1/enabled = true
+bus/1/effect/2/effect = SubResource("AudioEffectLimiter_1")
+bus/1/effect/2/enabled = true
