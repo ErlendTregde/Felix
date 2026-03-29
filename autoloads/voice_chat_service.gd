@@ -19,13 +19,15 @@ var _local_seat_index: int = -1
 # Steam API reference
 var _steam = null
 
-# Always decompress at 48 kHz — Steam's "optimal" rate is often 11025 or 24000
-# which sounds tinny/robotic.  48 kHz matches the AudioStreamGenerator mix rate
-# and the Opus codec's native output, giving the cleanest result.
-const SAMPLE_RATE: int = 48000
+# Sample rate — fetched from Steam at startup for best quality
+var _sample_rate: int = 48000
 
 func _ready() -> void:
 	_steam = Engine.get_singleton("Steam") if Engine.has_singleton("Steam") else null
+	if _steam != null and _steam.has_method("getVoiceOptimalSampleRate"):
+		var rate: int = _steam.getVoiceOptimalSampleRate()
+		if rate > 0:
+			_sample_rate = rate
 	FelixNetworkSession.player_left.connect(_on_player_left)
 
 func _process(_delta: float) -> void:
@@ -111,6 +113,9 @@ func set_push_to_talk(enabled: bool) -> void:
 func is_push_to_talk() -> bool:
 	return _push_to_talk
 
+func get_sample_rate() -> int:
+	return _sample_rate
+
 # ---------------------------------------------------------------------------
 # RPC — voice data transport (unreliable_ordered on channel 2)
 # ---------------------------------------------------------------------------
@@ -120,7 +125,7 @@ func _broadcast_voice(compressed_data: PackedByteArray, sender_seat: int) -> voi
 	if _steam == null:
 		return
 
-	var pcm: Dictionary = _steam.decompressVoice(compressed_data, SAMPLE_RATE)
+	var pcm: Dictionary = _steam.decompressVoice(compressed_data, _sample_rate)
 	if pcm.get("result", -1) != 0 or pcm.get("size", 0) <= 0:
 		return
 

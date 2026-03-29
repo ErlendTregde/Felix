@@ -1,45 +1,40 @@
 extends AudioStreamPlayer3D
 class_name VoicePlayer3D
 
-## Per-player 3D voice playback. Pushes decompressed PCM directly into an
-## AudioStreamGenerator with short fade-in/out to prevent clicks.
+## Per-player 3D voice playback node. Attached as a child of remote PlayerBody.
+## Receives decompressed PCM audio and pushes it into an AudioStreamGenerator
+## for spatialized playback. Includes optional raycast-based occlusion.
 
-const SAMPLE_RATE: int = 48000
-const FADE_FRAMES: int = 240              # 5 ms fade to prevent clicks
-const SILENCE_TIMEOUT: float = 0.30
-
-# Generator / playback
 var _playback: AudioStreamGeneratorPlayback = null
 var _generator: AudioStreamGenerator = null
 
-# Reusable buffer
-var _frame_buffer: PackedVector2Array = PackedVector2Array()
-
-# Fade state
-var _is_active: bool = false              # currently receiving voice data
-var _fade_in_remaining: int = 0           # frames left in fade-in
-var _last_sample: float = 0.0            # for fade-out
-
-# Talking indicator
-var _is_talking: bool = false
+# Silence / talking detection
 var _silence_timer: float = 0.0
+var _is_talking: bool = false
+const SILENCE_THRESHOLD: float = 0.25  # seconds without data = not talking
+
+# Reusable buffer to avoid per-call allocation
+var _frame_buffer: PackedVector2Array = PackedVector2Array()
 
 # Occlusion
 var _occlusion_enabled: bool = true
 var _occlusion_ray: RayCast3D = null
 var _is_occluded: bool = false
-const OCCLUDED_VOLUME_REDUCTION: float = 12.0
-const OCCLUDED_FILTER_CUTOFF: float = 2000.0
-const NORMAL_FILTER_CUTOFF: float = 20500.0
+const OCCLUDED_VOLUME_REDUCTION: float = 12.0  # dB
+const OCCLUDED_FILTER_CUTOFF: float = 2000.0   # Hz (muffled)
+const NORMAL_FILTER_CUTOFF: float = 20500.0     # Hz (full range)
 const LERP_SPEED: float = 8.0
+
 var _base_volume_db: float = 0.0
 
 func _ready() -> void:
+	# Configure AudioStreamGenerator — keep buffer small for low latency
 	_generator = AudioStreamGenerator.new()
-	_generator.mix_rate = float(SAMPLE_RATE)
-	_generator.buffer_length = 0.2  # 200 ms headroom
+	_generator.mix_rate = float(VoiceChatService.get_sample_rate())
+	_generator.buffer_length = 0.1  # 100ms — low latency while tolerating jitter
 	stream = _generator
 
+	# 3D audio properties for proximity voice
 	max_distance = 70.0
 	unit_size = 8.0
 	attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
@@ -47,26 +42,29 @@ func _ready() -> void:
 	attenuation_filter_cutoff_hz = NORMAL_FILTER_CUTOFF
 	attenuation_filter_db = -24.0
 	bus = &"Voice"
+
 	_base_volume_db = volume_db
 
+	# Start the stream so we can get the playback reference
 	play()
 	_playback = get_stream_playback()
 
+	# Setup occlusion raycast
 	if _occlusion_enabled:
 		_setup_occlusion_ray()
 
 func _process(delta: float) -> void:
 	_silence_timer += delta
-	if _is_talking and _silence_timer > SILENCE_TIMEOUT:
-		_set_talking(false)
-		# Fade out to avoid click when voice stops
-		if _is_active:
-			_push_fade_out()
-			_is_active = false
+	if _is_talking and _silence_timer > SILENCE_THRESHOLD:
+		_is_talking = false
+		var body := get_parent()
+		if body != null and body.has_method("set_talking_indicator"):
+			body.set_talking_indicator(false)
 
 func _physics_process(delta: float) -> void:
 	if not _occlusion_enabled or _occlusion_ray == null:
 		return
+
 	var viewport := get_viewport()
 	if viewport == null:
 		return
@@ -78,87 +76,48 @@ func _physics_process(delta: float) -> void:
 	_occlusion_ray.force_raycast_update()
 	_is_occluded = _occlusion_ray.is_colliding()
 
+	# Lerp volume and filter for smooth transitions
 	var target_vol := _base_volume_db - (OCCLUDED_VOLUME_REDUCTION if _is_occluded else 0.0)
 	var target_cutoff := OCCLUDED_FILTER_CUTOFF if _is_occluded else NORMAL_FILTER_CUTOFF
 	volume_db = lerpf(volume_db, target_vol, delta * LERP_SPEED)
 	attenuation_filter_cutoff_hz = lerpf(attenuation_filter_cutoff_hz, target_cutoff, delta * LERP_SPEED)
 
-## Push decompressed 16-bit mono PCM directly into the generator.
+## Push decompressed PCM audio data into the generator playback buffer.
+## [param pcm_data] is a PackedByteArray of 16-bit signed mono PCM samples.
 func push_audio(pcm_data: PackedByteArray) -> void:
 	if _playback == null:
 		return
 
-	var frame_count: int = pcm_data.size() / 2
+	var frame_count: int = pcm_data.size() / 2  # 16-bit mono = 2 bytes per sample
 	if frame_count == 0:
 		return
 
+	# Clamp to available buffer space to avoid overrun
 	var available: int = _playback.get_frames_available()
 	if available <= 0:
 		return
 	if frame_count > available:
 		frame_count = available
 
-	# Start fade-in if this is a new voice burst
-	if not _is_active:
-		_is_active = true
-		_fade_in_remaining = FADE_FRAMES
-
-	# Build stereo frame buffer
+	# Build the entire frame buffer at once, then push in one call.
+	# This is dramatically faster than pushing one frame at a time in GDScript.
 	_frame_buffer.resize(frame_count)
 	for i in frame_count:
-		var s: float = pcm_data.decode_s16(i * 2) / 32768.0
-		_frame_buffer[i] = Vector2(s, s)
-
-	# Apply fade-in to prevent click at start
-	if _fade_in_remaining > 0:
-		var fade_count: int = mini(_fade_in_remaining, frame_count)
-		var fade_start: int = FADE_FRAMES - _fade_in_remaining
-		for i in fade_count:
-			var t: float = float(fade_start + i + 1) / float(FADE_FRAMES)
-			_frame_buffer[i] *= t
-		_fade_in_remaining -= fade_count
-
+		var sample: float = pcm_data.decode_s16(i * 2) / 32768.0
+		_frame_buffer[i] = Vector2(sample, sample)
 	_playback.push_buffer(_frame_buffer)
-	_last_sample = _frame_buffer[frame_count - 1].x
 
-	_silence_timer = 0.0
+	# Update talking state
 	if not _is_talking:
-		_set_talking(true)
-
-## Short fade from last sample to zero — prevents click when voice stops.
-func _push_fade_out() -> void:
-	if _playback == null:
-		return
-	if absf(_last_sample) < 0.001:
-		_last_sample = 0.0
-		return
-	var available: int = _playback.get_frames_available()
-	var n: int = mini(FADE_FRAMES, available)
-	if n <= 0:
-		return
-
-	_frame_buffer.resize(n)
-	for i in n:
-		var t: float = 1.0 - float(i + 1) / float(n)
-		_frame_buffer[i] = Vector2(_last_sample * t, _last_sample * t)
-	_playback.push_buffer(_frame_buffer)
-	_last_sample = 0.0
-
-func _set_talking(talking: bool) -> void:
-	_is_talking = talking
-	var body := get_parent()
-	if body != null and body.has_method("set_talking_indicator"):
-		body.set_talking_indicator(talking)
+		_is_talking = true
+		var body := get_parent()
+		if body != null and body.has_method("set_talking_indicator"):
+			body.set_talking_indicator(true)
+	_silence_timer = 0.0
 
 func _setup_occlusion_ray() -> void:
 	_occlusion_ray = RayCast3D.new()
 	_occlusion_ray.name = "OcclusionRay"
-	_occlusion_ray.collision_mask = 1
+	_occlusion_ray.collision_mask = 1  # Layer 1 = walls/environment
 	_occlusion_ray.enabled = true
 	add_child(_occlusion_ray)
-
-func reset() -> void:
-	_is_active = false
-	_fade_in_remaining = 0
-	_last_sample = 0.0
-	_set_talking(false)
