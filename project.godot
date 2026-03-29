@@ -35,6 +35,10 @@ SteamRoundService="*res://autoloads/steam_round_service.gd"
 SteamMovementService="*res://autoloads/steam_movement_service.gd"
 VoiceChatService="*res://autoloads/voice_chat_service.gd"
 
+[audio]
+
+driver/mix_rate=48000
+
 [display]
 
 window/size/viewport_width=1920

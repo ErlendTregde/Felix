@@ -28,10 +28,10 @@ const LERP_SPEED: float = 8.0
 var _base_volume_db: float = 0.0
 
 func _ready() -> void:
-	# Configure AudioStreamGenerator — keep buffer small for low latency
+	# Configure AudioStreamGenerator
 	_generator = AudioStreamGenerator.new()
-	_generator.mix_rate = float(VoiceChatService.get_sample_rate())
-	_generator.buffer_length = 0.1  # 100ms — low latency while tolerating jitter
+	_generator.mix_rate = float(VoiceChatService.get_decompress_rate())
+	_generator.buffer_length = 0.2  # 200ms — jitter tolerance below perceptible latency
 	stream = _generator
 
 	# 3D audio properties for proximity voice
@@ -44,6 +44,10 @@ func _ready() -> void:
 	bus = &"Voice"
 
 	_base_volume_db = volume_db
+
+	# Pre-allocate frame buffer at max capacity to avoid per-call allocation
+	var max_frames: int = int(_generator.buffer_length * _generator.mix_rate)
+	_frame_buffer.resize(max_frames)
 
 	# Start the stream so we can get the playback reference
 	play()
@@ -101,11 +105,12 @@ func push_audio(pcm_data: PackedByteArray) -> void:
 
 	# Build the entire frame buffer at once, then push in one call.
 	# This is dramatically faster than pushing one frame at a time in GDScript.
-	_frame_buffer.resize(frame_count)
+	if frame_count > _frame_buffer.size():
+		_frame_buffer.resize(frame_count)
 	for i in frame_count:
 		var sample: float = pcm_data.decode_s16(i * 2) / 32768.0
 		_frame_buffer[i] = Vector2(sample, sample)
-	_playback.push_buffer(_frame_buffer)
+	_playback.push_buffer(_frame_buffer.slice(0, frame_count))
 
 	# Update talking state
 	if not _is_talking:
