@@ -8,7 +8,6 @@ class_name VoicePlayer3D
 const SILENCE_THRESHOLD: float = 0.25  # seconds without data = not talking
 const GENERATOR_BUFFER_LENGTH_SECONDS: float = 0.25
 const STARTUP_PREFILL_SECONDS: float = 0.06
-const TARGET_PLAYBACK_BUFFER_SECONDS: float = 0.08
 const TRIMMED_BUFFER_SECONDS: float = 0.10
 const MAX_BUFFERED_AUDIO_SECONDS: float = 0.18
 const MAX_CHUNKS_PER_DRAIN: int = 4
@@ -132,22 +131,19 @@ func _drain_queued_audio() -> void:
 	if _playback == null or _queued_pcm_chunks.is_empty():
 		return
 
-	if not _playback_primed and _get_total_buffered_frames() < _seconds_to_frames(STARTUP_PREFILL_SECONDS):
+	if not _playback_primed and _queued_frames < _seconds_to_frames(STARTUP_PREFILL_SECONDS):
 		return
 	_playback_primed = true
 
-	var target_frames := _seconds_to_frames(TARGET_PLAYBACK_BUFFER_SECONDS)
 	var drained_chunks: int = 0
 	while drained_chunks < MAX_CHUNKS_PER_DRAIN and not _queued_pcm_chunks.is_empty():
-		if _get_playback_buffered_frames() >= target_frames:
-			break
-
 		var pcm_chunk: PackedByteArray = _queued_pcm_chunks[0]
 		var frame_count: int = pcm_chunk.size() / 2
 		if frame_count <= 0:
 			_queued_pcm_chunks.remove_at(0)
 			continue
-		if not _playback.can_push_buffer(frame_count):
+		var available_frames: int = _playback.get_frames_available()
+		if available_frames <= 0 or frame_count > available_frames:
 			break
 
 		_playback.push_buffer(_pcm_to_stereo_frames(pcm_chunk, frame_count))
@@ -157,11 +153,11 @@ func _drain_queued_audio() -> void:
 
 func _trim_stale_audio() -> void:
 	var max_frames := _seconds_to_frames(MAX_BUFFERED_AUDIO_SECONDS)
-	if _get_total_buffered_frames() <= max_frames:
+	if _queued_frames <= max_frames:
 		return
 
 	var trimmed_frames := _seconds_to_frames(TRIMMED_BUFFER_SECONDS)
-	while not _queued_pcm_chunks.is_empty() and _get_total_buffered_frames() > trimmed_frames:
+	while not _queued_pcm_chunks.is_empty() and _queued_frames > trimmed_frames:
 		var dropped_chunk: PackedByteArray = _queued_pcm_chunks[0]
 		_queued_pcm_chunks.remove_at(0)
 		_queued_frames -= dropped_chunk.size() / 2
@@ -175,17 +171,6 @@ func _pcm_to_stereo_frames(pcm_data: PackedByteArray, frame_count: int) -> Packe
 		var sample: float = pcm_data.decode_s16(i * 2) / 32768.0
 		_frame_buffer[i] = Vector2(sample, sample)
 	return _frame_buffer
-
-func _get_total_buffered_frames() -> int:
-	return _get_playback_buffered_frames() + _queued_frames
-
-func _get_playback_buffered_frames() -> int:
-	if _playback == null:
-		return 0
-	return max(0, _buffer_capacity_frames() - _playback.get_frames_available())
-
-func _buffer_capacity_frames() -> int:
-	return _seconds_to_frames(GENERATOR_BUFFER_LENGTH_SECONDS)
 
 func _seconds_to_frames(seconds: float) -> int:
 	return max(1, int(seconds * float(_mix_rate)))
