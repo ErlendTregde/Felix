@@ -35,8 +35,8 @@ func _ready() -> void:
 	stream = _generator
 
 	# 3D audio properties for proximity voice
-	max_distance = 70.0
-	unit_size = 8.0
+	max_distance = 120.0
+	unit_size = 14.0
 	attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 	max_db = 6.0
 	attenuation_filter_cutoff_hz = NORMAL_FILTER_CUTOFF
