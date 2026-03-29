@@ -64,6 +64,8 @@ func _ready() -> void:
 	SteamRoomService.ensure_room_flow_started()
 	_build_debug_overlay()
 	_setup_movement_ui()
+	VoiceChatService.start_voice()
+	tree_exiting.connect(VoiceChatService.stop_voice)
 	SteamMovementService.player_stood.connect(_on_player_stood)
 	SteamMovementService.player_sat.connect(_on_player_sat)
 	SteamMovementService.position_updated.connect(_on_remote_position_updated)
@@ -389,6 +391,7 @@ func _spawn_all_player_bodies() -> void:
 			if is_instance_valid(body) and body.is_local:
 				local_body = null
 			if is_instance_valid(body):
+				VoiceChatService.unregister_voice_player(seat_idx)
 				body.get_parent().remove_child(body)
 				body.queue_free()
 			player_bodies.erase(seat_idx)
@@ -396,6 +399,7 @@ func _spawn_all_player_bodies() -> void:
 			# Peer ID changed — remove so it gets re-created with correct authority
 			if body.is_local:
 				local_body = null
+			VoiceChatService.unregister_voice_player(seat_idx)
 			body.get_parent().remove_child(body)
 			body.queue_free()
 			player_bodies.erase(seat_idx)
@@ -423,6 +427,14 @@ func _spawn_all_player_bodies() -> void:
 		if body_is_local:
 			body.interaction_label = interaction_label
 			local_body = body
+			VoiceChatService.set_local_seat(seat_idx)
+		else:
+			# Attach voice playback node for remote players
+			var voice_node := VoicePlayer3D.new()
+			voice_node.name = "VoicePlayer3D"
+			voice_node.position = Vector3(0, 10.0, 0)  # Head height
+			body.add_child(voice_node)
+			VoiceChatService.register_voice_player(seat_idx, voice_node)
 		player_bodies[seat_idx] = body
 		new_bodies.append(body)
 

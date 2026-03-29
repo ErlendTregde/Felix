@@ -1176,7 +1176,23 @@ func _spawn_player_bodies() -> void:
 		player_bodies[i] = body
 		init_seats.append(i)
 
+		# Voice chat: attach VoicePlayer3D to remote human players
+		if multiplayer.has_multiplayer_peer():
+			if body_is_local:
+				VoiceChatService.set_local_seat(i)
+			else:
+				var voice_node := VoicePlayer3D.new()
+				voice_node.name = "VoicePlayer3D"
+				voice_node.position = Vector3(0, 10.0, 0)  # Head height
+				body.add_child(voice_node)
+				VoiceChatService.register_voice_player(i, voice_node)
+
 	SteamMovementService.init_occupied_seats(init_seats)
+
+	# Start voice chat in multiplayer mode
+	if multiplayer.has_multiplayer_peer():
+		VoiceChatService.start_voice()
+		tree_exiting.connect(VoiceChatService.stop_voice)
 
 func _get_peer_id_for_seat(game_seat: int) -> int:
 	if not multiplayer.has_multiplayer_peer():
