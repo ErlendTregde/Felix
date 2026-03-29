@@ -411,7 +411,7 @@ func _spawn_all_player_bodies() -> void:
 			continue  # Already spawned with correct peer_id
 		var seat: SeatState = occupied_seats[seat_idx]
 		var body_peer_id: int = seat_peer_ids[seat_idx]
-		var body_is_local: bool = (body_peer_id == multiplayer.get_unique_id())
+		var body_is_local: bool = (seat.occupant_steam_id == SteamPlatformService.get_local_steam_id())
 		var color := _get_seat_color(room_state, seat)
 
 		var body: PlayerBody = player_body_scene.instantiate()
