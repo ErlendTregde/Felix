@@ -83,7 +83,7 @@ Felix uses **proximity voice chat** to let players hear each other based on 3D d
 
 When a player enters a multiplayer scene (steam_room or game_table), `VoiceChatService.start_voice()` is called. This tells Steam to begin recording from the microphone using `Steam.startVoiceRecording()`.
 
-Every ~20ms (50Hz), the service polls `Steam.getAvailableVoice()`. If voice data is available, it calls `Steam.getVoice()` which returns **compressed Opus audio** as a `PackedByteArray`. This is extremely bandwidth-efficient (~3-6 KB/s compared to ~192 KB/s for raw PCM).
+Every ~20ms (50Hz), the service polls `Steam.getAvailableVoice()` on a fixed physics tick. If voice data is available, it calls `Steam.getVoice()` which returns **compressed Opus audio** as a `PackedByteArray`. This is extremely bandwidth-efficient (~3-6 KB/s compared to ~192 KB/s for raw PCM).
 
 ### 2. Network Transport
 
@@ -103,7 +103,7 @@ On the receiving end, `Steam.decompressVoice()` converts the Opus bytes back to 
 
 ### 4. 3D Playback
 
-Each remote player has a `VoicePlayer3D` node (extends `AudioStreamPlayer3D`) attached to their `PlayerBody` at head height (Y=10). It uses an `AudioStreamGenerator` to push raw PCM frames into the audio engine.
+Each remote player has a `VoicePlayer3D` node (extends `AudioStreamPlayer3D`) attached to their `PlayerBody` at head height (Y=10). It uses an `AudioStreamGenerator` plus a small jitter queue so bursts, packet jitter, and brief stalls do not immediately underrun playback.
 
 Godot's built-in 3D audio handles:
 - **Spatialization**: Audio pans left/right based on the speaker's position relative to the listener
@@ -130,10 +130,10 @@ These can be adjusted in `scripts/voice_player_3d.gd`:
 | `max_distance` | 70.0 | Maximum audible distance (units) |
 | `unit_size` | 8.0 | Reference distance for volume normalization |
 | `attenuation_model` | `INVERSE_DISTANCE` | How volume decreases with distance |
-| `max_db` | 6.0 | Maximum volume boost at close range |
+| `max_db` | 0.0 | Maximum volume boost at close range |
 | `OCCLUDED_VOLUME_REDUCTION` | 12.0 dB | Volume reduction when occluded by a wall |
 | `OCCLUDED_FILTER_CUTOFF` | 2000 Hz | Low-pass filter when occluded (muffled) |
-| `SILENCE_THRESHOLD` | 0.3s | Time without data before "not talking" |
+| `SILENCE_THRESHOLD` | 0.25s | Time without data before "not talking" |
 
 ### VoiceChatService Settings
 
@@ -189,8 +189,8 @@ If no microphone is available, `Steam.getAvailableVoice()` returns a non-zero st
 
 ### Buffer Management
 
-- **Underrun** (no data arriving): The `AudioStreamGenerator` buffer drains naturally to silence. No special handling needed.
-- **Overrun** (too much data): `_playback.can_push_buffer(1)` is checked before each frame push. Excess frames are dropped.
+- **Underrun** (no data arriving): `VoicePlayer3D` re-enters a short prefill phase after a skip so playback restarts with a small cushion instead of a single late packet.
+- **Overrun** (too much data): voice chunks are queued first, then drained toward a target playback buffer. If latency grows too large, stale queued audio is trimmed so speech stays near real time.
 
 ---
 
@@ -201,13 +201,13 @@ If no microphone is available, `Steam.getAvailableVoice()` returns a non-zero st
 1. Check that Steam is running and initialized (`SteamManager.is_steam_available()`)
 2. Verify microphone is not muted (press M to toggle)
 3. Check Steam overlay settings: Steam > Settings > Voice > ensure correct input device
-4. Ensure players are within `max_distance` (default: 40 units)
+4. Ensure players are within `max_distance` (default: 70 units)
 5. Check the Voice audio bus volume in Godot's Audio tab
 
 ### Voice is choppy or delayed
 
 1. Check network quality between peers (Steam P2P handles NAT traversal)
-2. Try increasing `VoicePlayer3D._generator.buffer_length` (default: 0.5s)
+2. Try increasing `VoicePlayer3D.GENERATOR_BUFFER_LENGTH_SECONDS` (default: 0.25s) if your players have unusually jittery connections
 3. Ensure `VOICE_POLL_INTERVAL` is not set too high (default: 0.02s = 50Hz)
 
 ### Echo / feedback
