@@ -437,9 +437,17 @@ func _spawn_all_player_bodies() -> void:
 		player_bodies[seat_idx] = body
 		new_bodies.append(body)
 
-	# Spawn new bodies seated at their assigned chairs
+	# Spawn new bodies. A remote player who is ALREADY standing (stood up before we
+	# joined) must spawn standing so we can see their body + animations; everyone
+	# else spawns seated.
 	for i in new_bodies.size():
 		var body: PlayerBody = new_bodies[i]
+		if not body.is_local and SteamMovementService.is_seat_standing(body.seat_index):
+			var chair_pos := CHAIR_POSITIONS[body.seat_index] if body.seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
+			var face_dir := CHAIR_FACE_DIRECTIONS[body.seat_index] if body.seat_index < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+			body.spawn_at_chair(chair_pos, face_dir)
+			body.set_standing(true)
+			continue
 		body.set_standing(false)
 		SteamMovementService._standing_seats[body.seat_index] = false
 		if body.is_local:

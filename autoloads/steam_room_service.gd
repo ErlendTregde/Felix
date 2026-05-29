@@ -433,6 +433,9 @@ func _on_join_request_pending(_lobby_id: int, _friend_id: int, _source: String) 
 func _on_peer_registered(_peer_id: int, _steam_id: int) -> void:
 	if is_local_host():
 		_rebuild_host_room_state()
+		# Bring the newcomer up to date on who is already standing, so players who
+		# stood up before this peer joined are rendered standing (not seated).
+		SteamMovementService.sync_standing_state_to_peer(_peer_id)
 
 func _on_player_left(_peer_id: int, steam_id: int) -> void:
 	if not is_local_host():

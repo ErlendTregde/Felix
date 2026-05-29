@@ -140,6 +140,31 @@ func _client_player_sat(seat_index: int, target_seat: int, original_seat: int = 
 	_log("Player at seat %d sat down at seat %d (original: %d)" % [seat_index, target_seat, orig])
 	player_sat.emit(seat_index, target_seat)
 
+## Host-only: push the current standing state to a single newly-joined peer.
+## Without this, a client that joins AFTER someone stood up never learns they
+## are standing (the live _client_player_stood RPC was sent before it connected),
+## so it renders that player as permanently seated.
+func sync_standing_state_to_peer(peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	var standing: Array = []
+	for seat_idx in _standing_seats:
+		if _standing_seats[seat_idx]:
+			standing.append(seat_idx)
+	if standing.is_empty():
+		return
+	_receive_standing_state.rpc_id(peer_id, standing)
+
+@rpc("authority", "call_remote", "reliable")
+func _receive_standing_state(standing_seats: Array) -> void:
+	for seat_idx in standing_seats:
+		_standing_seats[seat_idx] = true
+		_occupied_seats.erase(seat_idx)
+		_log("Sync: seat %d is standing (joined late)" % seat_idx)
+		# Emit in case the body already exists; _spawn_all_player_bodies also
+		# reads is_seat_standing() to cover the case where it doesn't yet.
+		player_stood.emit(seat_idx)
+
 @rpc("authority", "call_remote", "reliable")
 func _client_force_sit_all() -> void:
 	_log("Force-sitting all players")
