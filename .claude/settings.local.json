@@ -5,7 +5,8 @@
       "Bash(wc -l /d/godot/felix/scripts/*.gd)",
       "Bash(cd /d)",
       "Bash(grep -r tree.root --include=*.gd)",
-      "WebFetch(domain:www.youtube.com)"
+      "WebFetch(domain:www.youtube.com)",
+      "Bash(wc -l D:/godot/felix/scripts/*.gd)"
     ]
   }
 }

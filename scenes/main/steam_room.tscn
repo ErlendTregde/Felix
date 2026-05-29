@@ -89,6 +89,12 @@ custom_minimum_size = Vector2(180, 46)
 theme_override_font_sizes/font_size = 18
 text = "Start Round"
 
+[node name="PlaygroundButton" type="Button" parent="RoomUI/BottomBar"]
+layout_mode = 2
+custom_minimum_size = Vector2(180, 46)
+theme_override_font_sizes/font_size = 18
+text = "Playground"
+
 [node name="LeaveButton" type="Button" parent="RoomUI/BottomBar"]
 layout_mode = 2
 custom_minimum_size = Vector2(180, 46)

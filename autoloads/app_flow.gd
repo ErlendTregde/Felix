@@ -4,6 +4,7 @@ const LAUNCHER_SCENE := "res://scenes/ui/launcher.tscn"
 const LOCAL_GAME_SCENE := "res://scenes/main/game_table.tscn"
 const STEAM_ROOM_SCENE := "res://scenes/main/steam_room.tscn"
 const MULTIPLAYER_MENU_SCENE := "res://scenes/ui/multiplayer_menu.tscn"
+const PLAYGROUND_SCENE := "res://scenes/environment/playground.tscn"
 
 var _pending_status_message: String = ""
 
@@ -27,6 +28,10 @@ func open_steam_room(status_message: String = "") -> void:
 func open_multiplayer_menu(status_message: String = "") -> void:
 	_pending_status_message = status_message
 	_change_scene_if_needed(MULTIPLAYER_MENU_SCENE)
+
+func open_playground(status_message: String = "") -> void:
+	_pending_status_message = status_message
+	_change_scene_if_needed(PLAYGROUND_SCENE)
 
 func open_multiplayer_round(status_message: String = "") -> void:
 	_pending_status_message = status_message

@@ -1,17 +1,11 @@
 [gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/player_body.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/players/body_rig.tscn" id="2_body_rig"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
 radius = 1.4
 height = 11.0
-
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_1"]
-radius = 1.4
-height = 11.0
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_1"]
-albedo_color = Color(0.4, 0.6, 0.4, 1)
 
 [sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_1"]
 properties/0/path = NodePath(".:position")
@@ -33,10 +27,7 @@ script = ExtResource("1_script")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.5, 0)
 shape = SubResource("CapsuleShape3D_1")
 
-[node name="AvatarMesh" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.5, 0)
-mesh = SubResource("CapsuleMesh_1")
-surface_material_override/0 = SubResource("StandardMaterial3D_1")
+[node name="BodyRig" parent="." instance=ExtResource("2_body_rig")]
 
 [node name="NameLabel" type="Label3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 11.5, 0)
@@ -52,6 +43,17 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10.0, 0)
 [node name="InteractionRay" type="RayCast3D" parent="FPSCamera"]
 target_position = Vector3(0, 0, -3)
 collision_mask = 4
+
+[node name="ThirdPersonPivot" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
+
+[node name="ThirdPersonArm" type="SpringArm3D" parent="ThirdPersonPivot"]
+spring_length = 8.0
+collision_mask = 1
+margin = 0.5
+
+[node name="ThirdPersonCamera" type="Camera3D" parent="ThirdPersonPivot/ThirdPersonArm"]
+current = false
 
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
 replication_config = SubResource("SceneReplicationConfig_1")

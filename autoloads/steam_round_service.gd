@@ -1274,18 +1274,18 @@ func _client_give_card_done(actor_seat: int, actor_slot: int, actor_is_penalty: 
 		if actor_is_penalty:
 			if actor_slot >= 0 and actor_slot < actor_grid.penalty_cards.size():
 				card = actor_grid.penalty_cards[actor_slot]
-				actor_grid.penalty_cards[actor_slot] = null
+				if card:
+					actor_grid.remove_penalty_card(card)  # proper cleanup: removes from array, frees placeholder, detaches from grid
 		else:
 			card = actor_grid.get_card_at(actor_slot)
 			if card:
 				actor_grid.cards[actor_slot] = null
+				if card.get_parent():
+					card.get_parent().remove_child(card)
 		if card and is_instance_valid(card):
-			# Re-parent and place in target's penalty slot
-			if card.get_parent():
-				card.get_parent().remove_child(card)
 			var target_grid = tbl.player_grids[target_seat]
 			card.owner_seat_id = target_seat
-			target_grid.add_penalty_card(card, false)
+			target_grid.add_penalty_card(card, true)  # animate card flying to penalty slot
 	tbl.match_manager.is_choosing_give_card = false
 	tbl.match_manager.give_card_actor_seat_idx = -1
 	tbl.match_manager.give_card_target_player_idx = -1

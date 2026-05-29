@@ -9,13 +9,22 @@ const GRAVITY := 20.0
 @export var peer_id: int = 1
 
 @onready var fps_camera: Camera3D = $FPSCamera
-@onready var avatar_mesh: MeshInstance3D = $AvatarMesh
+@onready var third_person_pivot: Node3D = $ThirdPersonPivot
+@onready var third_person_arm: SpringArm3D = $ThirdPersonPivot/ThirdPersonArm
+@onready var third_person_camera: Camera3D = $ThirdPersonPivot/ThirdPersonArm/ThirdPersonCamera
+@onready var body_rig: BodyRig = $BodyRig
 @onready var name_label: Label3D = $NameLabel
 @onready var interaction_ray: RayCast3D = $FPSCamera/InteractionRay
+
+const TP_MIN_ZOOM: float = 4.0
+const TP_MAX_ZOOM: float = 30.0
+const TP_PITCH_LIMIT: float = 1.05  # ~±60° pitch (positive = look up, negative = look down)
 
 var is_standing: bool = false
 var is_local: bool = false  # Whether this body belongs to the local player
 var mouse_rotation: Vector2 = Vector2.ZERO  # x = yaw, y = pitch
+var avatar_color: Color = Color.WHITE  # Used by lobby for seated-visual placeholders
+var _last_pos: Vector3 = Vector3.ZERO
 var player_display_name: String = ""
 var nearby_chair_seat_index: int = -1
 
@@ -27,6 +36,10 @@ var _remote_target_pos: Vector3 = Vector3.ZERO
 var _remote_target_rot_y: float = 0.0
 var _has_remote_target: bool = false
 const REMOTE_LERP_SPEED: float = 12.0
+# Smoothed horizontal speed used to drive remote walk/idle (avoids flicker between
+# 20Hz network packets, where the per-frame lerp delta momentarily drops to ~0).
+var _remote_speed_smoothed: float = 0.0
+const REMOTE_SPEED_SMOOTH: float = 8.0
 
 # Interaction prompt (created by game_table/steam_room)
 var interaction_label: Label = null
@@ -37,11 +50,15 @@ signal request_stand()
 func _ready() -> void:
 	# Start hidden/inactive
 	set_standing(false)
+	# SpringArm should ignore our own collider so it doesn't collapse to zero.
+	if third_person_arm:
+		third_person_arm.add_excluded_object(get_rid())
 
 func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: Color, p_is_local: bool) -> void:
 	seat_index = p_seat_index
 	peer_id = p_peer_id
 	player_display_name = p_display_name
+	avatar_color = p_color
 	is_local = p_is_local
 	set_multiplayer_authority(peer_id)
 
@@ -60,14 +77,11 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 	_talk_indicator.visible = false
 	add_child(_talk_indicator)
 
-	# Color the avatar
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = p_color
-	avatar_mesh.material_override = mat
-
-	# Local player: hide avatar mesh (first person view) but keep nametag visible
-	if is_local:
-		avatar_mesh.visible = false
+	# Set the model on the rig (Walking.fbx is the character + walk animation).
+	if body_rig:
+		var model_path := "res://assets/models/characters/body/Walking.fbx"
+		if ResourceLoader.exists(model_path):
+			body_rig.model_scene = load(model_path)
 
 func set_standing(standing: bool) -> void:
 	is_standing = standing
@@ -77,10 +91,12 @@ func set_standing(standing: bool) -> void:
 	set_process_input(standing and is_local)
 
 	if standing:
-		# Show avatar for remote players, nametag for everyone
 		name_label.visible = true
-		if not is_local:
-			avatar_mesh.visible = true
+		# Reset locomotion tracking so the body doesn't spike to "walk" on frame 1.
+		_last_pos = global_position
+		_remote_speed_smoothed = 0.0
+		if body_rig:
+			body_rig.set_locomotion(0.0)
 	else:
 		nearby_chair_seat_index = -1
 		if interaction_label:
@@ -96,6 +112,27 @@ func _process(delta: float) -> void:
 	if not is_local and _has_remote_target and is_standing:
 		global_position = global_position.lerp(_remote_target_pos, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
 		rotation.y = lerp_angle(rotation.y, _remote_target_rot_y, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
+
+	# Drive walk/idle blend on the body rig (same rig for local and remote).
+	if body_rig and is_standing:
+		var speed: float
+		if is_local:
+			speed = Vector2(velocity.x, velocity.z).length()
+		else:
+			# Horizontal distance only — ignore Y so gravity/height changes don't
+			# read as movement. Smooth it so 20Hz packet gaps don't flicker idle/walk.
+			var moved := Vector2(global_position.x - _last_pos.x, global_position.z - _last_pos.z).length()
+			var inst_speed := moved / maxf(delta, 0.001)
+			_remote_speed_smoothed = lerpf(_remote_speed_smoothed, inst_speed, clampf(REMOTE_SPEED_SMOOTH * delta, 0.0, 1.0))
+			speed = _remote_speed_smoothed
+		body_rig.set_locomotion(speed)
+	_last_pos = global_position
+
+	# Keep the 3rd-person camera pointed at the player head every frame.
+	if third_person_camera and third_person_camera.current:
+		var target := third_person_pivot.global_position
+		if third_person_camera.global_position.distance_squared_to(target) > 0.01:
+			third_person_camera.look_at(target, Vector3.UP)
 
 func activate_fps_camera() -> void:
 	"""Make this body's FPS camera the active viewport camera. Only call for local player."""
@@ -129,6 +166,11 @@ func _input(event: InputEvent) -> void:
 	if not is_standing or not is_local:
 		return
 
+	# V toggles between FPS and 3rd-person debug view
+	if event is InputEventKey and event.pressed and event.keycode == KEY_V:
+		_toggle_third_person()
+		return
+
 	# Escape toggles mouse capture
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -136,6 +178,15 @@ func _input(event: InputEvent) -> void:
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		return
+
+	# Mouse-wheel zooms the 3rd-person camera (when active).
+	if event is InputEventMouseButton and event.pressed and third_person_camera.current:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			third_person_arm.spring_length = clampf(third_person_arm.spring_length - 1.5, TP_MIN_ZOOM, TP_MAX_ZOOM)
+			return
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			third_person_arm.spring_length = clampf(third_person_arm.spring_length + 1.5, TP_MIN_ZOOM, TP_MAX_ZOOM)
+			return
 
 	# Re-capture mouse on click when visible
 	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -149,6 +200,8 @@ func _input(event: InputEvent) -> void:
 
 		rotation.y = mouse_rotation.x
 		fps_camera.rotation.x = mouse_rotation.y
+		# Drive 3rd-person pitch on the pivot. Positive pitch = camera below player (looks up).
+		third_person_pivot.rotation.x = clampf(mouse_rotation.y, -TP_PITCH_LIMIT, TP_PITCH_LIMIT)
 
 	if event.is_action_pressed("interact") and nearby_chair_seat_index >= 0:
 		request_sit.emit(nearby_chair_seat_index)
@@ -211,6 +264,16 @@ func _update_chair_detection() -> void:
 			interaction_label.visible = true
 		elif nearby_chair_seat_index < 0 and prev_nearby >= 0:
 			interaction_label.visible = false
+
+func play_anim(anim_id: String) -> void:
+	if body_rig:
+		body_rig.play_anim(anim_id)
+
+func _toggle_third_person() -> void:
+	if third_person_camera.current:
+		fps_camera.make_current()
+	else:
+		third_person_camera.make_current()
 
 func set_talking_indicator(talking: bool) -> void:
 	if _talk_indicator != null:

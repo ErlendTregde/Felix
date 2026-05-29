@@ -21,6 +21,7 @@ const LOCAL_FILL_HEIGHT: float = 8.8
 @onready var ready_button: Button = $RoomUI/BottomBar/ReadyButton
 @onready var start_button: Button = $RoomUI/BottomBar/StartButton
 @onready var leave_button: Button = $RoomUI/BottomBar/LeaveButton
+@onready var playground_button: Button = $RoomUI/BottomBar/PlaygroundButton
 @onready var lobby_code_label: Label = $RoomUI/TopLeft/LobbyCodeRow/LobbyCodeLabel
 @onready var copy_button: Button = $RoomUI/TopLeft/LobbyCodeRow/CopyButton
 
@@ -60,6 +61,7 @@ func _ready() -> void:
 	ready_button.pressed.connect(_on_ready_pressed)
 	start_button.pressed.connect(_on_start_pressed)
 	leave_button.pressed.connect(_on_leave_pressed)
+	playground_button.pressed.connect(_on_playground_pressed)
 	copy_button.pressed.connect(_on_copy_pressed)
 	SteamRoomService.ensure_room_flow_started()
 	_build_debug_overlay()
@@ -182,10 +184,7 @@ func _refresh_seat_visuals(_room_state: RoomState) -> void:
 		var dir_away := Vector3(grid_pos.x, 0, grid_pos.z).normalized()
 		var chair_pos := grid_pos + dir_away * 3.0
 		chair_pos.y = grid_pos.y
-		var color := Color(0.4, 0.6, 0.4)
-		var mat_override = pb.avatar_mesh.material_override
-		if mat_override is StandardMaterial3D:
-			color = mat_override.albedo_color
+		var color: Color = pb.avatar_color if pb.avatar_color != Color.WHITE else Color(0.4, 0.6, 0.4)
 
 		var body_root := Node3D.new()
 		add_child(body_root)
@@ -438,26 +437,21 @@ func _spawn_all_player_bodies() -> void:
 		player_bodies[seat_idx] = body
 		new_bodies.append(body)
 
-	# Spawn new bodies standing at wall (not seated), offset so they don't overlap
+	# Spawn new bodies seated at their assigned chairs
 	for i in new_bodies.size():
 		var body: PlayerBody = new_bodies[i]
-		var spawn_pos := WALL_SPAWN_POS + Vector3(i * 2.0 - (new_bodies.size() - 1), 0, 0)
-		body.global_position = Vector3(spawn_pos.x, 0.0, spawn_pos.z)
-		# Face toward table center (+Z from north wall)
-		var yaw := atan2(0.0, 1.0)  # facing +Z (south, toward table)
-		body.rotation.y = yaw
-		body.mouse_rotation.x = yaw
-		if body.is_local and body.fps_camera:
-			body.fps_camera.rotation.x = 0.0
-			body.mouse_rotation.y = 0.0
-		body.set_standing(true)
-		SteamMovementService._standing_seats[body.seat_index] = true
+		body.set_standing(false)
+		SteamMovementService._standing_seats[body.seat_index] = false
 		if body.is_local:
-			is_standing = true
-			camera_controller.set_process(false)
-			camera_controller.set_process_input(false)
-			body.activate_fps_camera()
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			is_standing = false
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			body.deactivate_fps_camera()
+			camera_controller.set_process(true)
+			camera_controller.set_process_input(true)
+			camera_controller.camera.make_current()
+			var spawn_room_state := SteamRoomService.get_room_state()
+			_apply_local_view(spawn_room_state)
+			_refresh_buttons(spawn_room_state)
 
 func _on_leave_seat_pressed() -> void:
 	if is_standing or local_body == null:
@@ -567,3 +561,8 @@ func _on_start_pressed() -> void:
 
 func _on_leave_pressed() -> void:
 	SteamRoomService.request_leave_room()
+
+func _on_playground_pressed() -> void:
+	# Playground is single-player; leave the lobby first so we don't dangle peers.
+	SteamRoomService.request_leave_room()
+	AppFlow.open_playground()
