@@ -93,6 +93,8 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 			body_rig.model_scene = load(model_path)
 
 func set_standing(standing: bool) -> void:
+	if standing and not is_local:
+		print("[PlayerBody] set_standing(TRUE) on REMOTE seat=%d peer=%d" % [seat_index, peer_id])
 	is_standing = standing
 	if standing:
 		is_seated = false
@@ -121,6 +123,7 @@ func set_standing(standing: bool) -> void:
 ## Position the body at a chair and play the sitting idle animation.
 ## Call this BEFORE set_standing(false) so is_seated is already true.
 func seat_at(chair_position: Vector3, face_direction: Vector3) -> void:
+	print("[PlayerBody] seat_at seat=%d local=%s" % [seat_index, is_local])
 	is_seated = true
 	# Place body at the chair, raised so the sitting pose rests on the chair, and
 	# pushed outward (face_direction points away from the table) so it doesn't clip.

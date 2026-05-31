@@ -1261,6 +1261,13 @@ func _find_body_at_seat(current_seat: int) -> PlayerBody:
 	return null
 
 func _on_player_stood(seat_index: int) -> void:
+	# Players cannot stand during an active round. A stand event arriving now is
+	# stale (e.g. leftover lobby standing state) and must be ignored, or it would
+	# flip a seated body to the standing/walk pose.
+	if _is_round_active():
+		print("[game_table] Ignoring stand for seat %d — round active" % seat_index)
+		return
+
 	var body := _find_body_at_seat(seat_index)
 	if body == null:
 		return
