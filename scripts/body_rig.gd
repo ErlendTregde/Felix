@@ -92,8 +92,25 @@ func set_head_look(yaw: float, pitch: float) -> void:
 func play_anim(anim_id: String) -> void:
 	if not _anim_player:
 		return
-	var resolved := _resolve(anim_id)
+	# Strict: never fall back to an arbitrary clip (that caused the walk anim to
+	# play when a one-shot like "seated_idle" was missing).
+	var resolved := _resolve_strict(anim_id)
 	if resolved != "":
+		_anim_player.play(resolved)
+	else:
+		push_warning("BodyRig: animation '%s' not found — keeping current" % anim_id)
+
+## Continuously ensure the seated idle is playing. Called every frame for seated
+## bodies so a stray locomotion/one-shot animation can never stick.
+func set_seated() -> void:
+	if not _anim_player:
+		return
+	var resolved := _resolve_strict("seated_idle")
+	if resolved == "":
+		return
+	# Reset locomotion state so standing up later re-evaluates walk/idle cleanly.
+	_locomotion_state = ""
+	if _anim_player.current_animation != resolved:
 		_anim_player.play(resolved)
 
 ## Hysteresis band: start walking above WALK_ENTER, fall back to idle below WALK_EXIT.
@@ -127,16 +144,24 @@ func _play_loop(state: String) -> void:
 func _resolve(anim_id: String) -> String:
 	if not _anim_player:
 		return ""
+	var strict := _resolve_strict(anim_id)
+	if strict != "":
+		return strict
+	# Fallback: first non-RESET animation (only used by locomotion, never one-shots).
+	for anim in _anim_player.get_animation_list():
+		if anim != "RESET":
+			return anim
+	return ""
+
+func _resolve_strict(anim_id: String) -> String:
+	if not _anim_player:
+		return ""
 	if _anim_player.has_animation(anim_id):
 		return anim_id
 	if ANIM_ALIASES.has(anim_id):
 		for alias in ANIM_ALIASES[anim_id]:
 			if _anim_player.has_animation(alias):
 				return alias
-	# Fallback: first non-RESET animation.
-	for anim in _anim_player.get_animation_list():
-		if anim != "RESET":
-			return anim
 	return ""
 
 func _force_loop_animations() -> void:

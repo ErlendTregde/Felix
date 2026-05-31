@@ -148,6 +148,10 @@ func _process(delta: float) -> void:
 		global_position = global_position.lerp(_remote_target_pos, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
 		rotation.y = lerp_angle(rotation.y, _remote_target_rot_y, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
 
+	# Keep seated bodies locked on the sitting idle (overrides any stray anim).
+	if body_rig and is_seated and not is_standing:
+		body_rig.set_seated()
+
 	# Drive walk/idle blend on the body rig (same rig for local and remote).
 	if body_rig and is_standing:
 		var speed: float
