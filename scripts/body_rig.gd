@@ -43,6 +43,17 @@ func _build_model() -> void:
 		return
 	_anim_player = found[0] as AnimationPlayer
 
+	# Each instance must OWN its animations. Instancing the same PackedScene shares
+	# the imported AnimationLibrary resources between bodies, so two AnimationPlayers
+	# end up driving the same animation data and visibly interfere (one body plays
+	# walk while reporting "seated_idle"). Duplicate the libraries so each rig is
+	# fully independent.
+	for lib_name in _anim_player.get_animation_library_list():
+		var shared_lib: AnimationLibrary = _anim_player.get_animation_library(lib_name)
+		var unique_lib: AnimationLibrary = shared_lib.duplicate(true)
+		_anim_player.remove_animation_library(lib_name)
+		_anim_player.add_animation_library(lib_name, unique_lib)
+
 	# Replace root-motion walk with the in-place version.
 	_try_import_walk()
 	# Merge idle animation from separately downloaded FBX.
