@@ -10,7 +10,7 @@ var target_pitch: float = 0.0  # radians
 
 # Flip these if the head turns the wrong way once you see it in-game.
 const YAW_SIGN: float = 1.0
-const PITCH_SIGN: float = 1.0
+const PITCH_SIGN: float = -1.0
 # Clamp so the head can never spin into a broken pose.
 const MAX_YAW: float = 1.2    # ~69°
 const MAX_PITCH: float = 0.7  # ~40°

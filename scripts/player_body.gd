@@ -33,8 +33,9 @@ var nearby_chair_seat_index: int = -1
 var _talk_indicator: Label3D = null
 
 # Seated placement — raise the body so it sits on the chair instead of sinking
-# below the table. Tune this if the seated pose sits too high/low.
+# below the table, and push it back from the table edge so it doesn't clip through.
 const SEATED_Y_OFFSET: float = 3.0
+const SEATED_OUTWARD_OFFSET: float = 2.0
 
 # Remote interpolation
 var _remote_target_pos: Vector3 = Vector3.ZERO
@@ -121,8 +122,10 @@ func set_standing(standing: bool) -> void:
 ## Call this BEFORE set_standing(false) so is_seated is already true.
 func seat_at(chair_position: Vector3, face_direction: Vector3) -> void:
 	is_seated = true
-	# Place body at the chair, raised so the sitting pose rests on the chair.
-	global_position = Vector3(chair_position.x, SEATED_Y_OFFSET, chair_position.z)
+	# Place body at the chair, raised so the sitting pose rests on the chair, and
+	# pushed outward (face_direction points away from the table) so it doesn't clip.
+	var outward := face_direction.normalized() * SEATED_OUTWARD_OFFSET
+	global_position = Vector3(chair_position.x + outward.x, SEATED_Y_OFFSET, chair_position.z + outward.z)
 	# Same convention as spawn_at_chair: body forward (−Z) points toward the table.
 	if face_direction.length() > 0.001:
 		rotation.y = atan2(face_direction.x, face_direction.z)
