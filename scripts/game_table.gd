@@ -1176,6 +1176,13 @@ func _spawn_player_bodies() -> void:
 		player_bodies[i] = body
 		init_seats.append(i)
 
+		# Seat the body so the sitting-idle character is shown (remote players see it;
+		# the local player's own body stays hidden behind the seated camera).
+		var tp := get_table_position(i)
+		var chair_pos := CHAIR_POSITIONS[tp] if tp < CHAIR_POSITIONS.size() else Vector3.ZERO
+		var face_dir := CHAIR_FACE_DIRECTIONS[tp] if tp < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+		body.seat_at(chair_pos, face_dir)
+
 		# Voice chat: attach VoicePlayer3D to remote human players
 		if multiplayer.has_multiplayer_peer():
 			if body_is_local:
@@ -1281,8 +1288,11 @@ func _on_player_stood(seat_index: int) -> void:
 func _on_player_sat(seat_index: int, target_seat: int) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body:
-		body.set_standing(false)
 		body.seat_index = target_seat
+		var tp := get_table_position(target_seat)
+		var chair_pos := CHAIR_POSITIONS[tp] if tp < CHAIR_POSITIONS.size() else Vector3.ZERO
+		var face_dir := CHAIR_FACE_DIRECTIONS[tp] if tp < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+		body.seat_at(chair_pos, face_dir)
 
 	# Only switch camera for the LOCAL player
 	var is_local: bool = (seat_index == local_seat_index)
@@ -1310,16 +1320,28 @@ var _sync_timer: float = 0.0
 const SYNC_INTERVAL: float = 0.05
 
 func _process(delta: float) -> void:
-	if is_local_player_standing and multiplayer.has_multiplayer_peer():
-		var body := _find_body_at_seat(local_seat_index)
-		if body:
-			_sync_timer += delta
-			if _sync_timer >= SYNC_INTERVAL:
-				_sync_timer = 0.0
-				var pos := body.global_position
-				SteamMovementService.sync_body_position.rpc(
-					local_seat_index, pos.x, pos.y, pos.z, body.rotation.y, 0.0, body.get_head_pitch()
-				)
+	if not multiplayer.has_multiplayer_peer():
+		return
+	var body := _find_body_at_seat(local_seat_index)
+	if body == null:
+		return
+	_sync_timer += delta
+	if _sync_timer < SYNC_INTERVAL:
+		return
+	_sync_timer = 0.0
+	var pos := body.global_position
+	var head_yaw := 0.0
+	var head_pitch := 0.0
+	if is_local_player_standing:
+		head_pitch = body.get_head_pitch()
+	else:
+		# Seated: head look comes from the seated camera's offsets.
+		var look: Vector2 = camera_controller.get_look_offsets()
+		head_yaw = look.x
+		head_pitch = look.y
+	SteamMovementService.sync_body_position.rpc(
+		local_seat_index, pos.x, pos.y, pos.z, body.rotation.y, head_yaw, head_pitch
+	)
 
 func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float) -> void:
 	var body := _find_body_at_seat(seat_index)

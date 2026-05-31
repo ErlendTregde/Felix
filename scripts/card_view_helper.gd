@@ -177,8 +177,9 @@ func create_seat_markers() -> void:
 			table.add_child(dot)
 			dot.global_position = Vector3(seat_pos.x, seat_pos.y + 0.3, seat_pos.z)
 			table.seat_markers.append(dot)
-		else:
-			# Bot character — capsule body + sphere head, sitting on chair
+		elif seat_context != null and seat_context.control_type == SeatContext.SeatControlType.BOT:
+			# Bot character — capsule body + sphere head, sitting on chair.
+			# (Human players are rendered by their PlayerBody sitting-idle rig instead.)
 			var bot_root = Node3D.new()
 			bot_root.name = "BotVisual_%d" % i
 			table.add_child(bot_root)
