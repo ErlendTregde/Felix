@@ -145,7 +145,15 @@ func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_
 func get_head_pitch() -> float:
 	return fps_camera.rotation.x if fps_camera else 0.0
 
+var _dbg_frames: int = 0
 func _process(delta: float) -> void:
+	# Throttled diagnostic for remote bodies — what state + animation are they in?
+	if not is_local:
+		_dbg_frames += 1
+		if _dbg_frames % 90 == 0 and body_rig:
+			print("[PlayerBody] seat=%d standing=%s seated=%s anim='%s'" % [
+				seat_index, is_standing, is_seated, body_rig.current_anim_name()])
+
 	# Smoothly interpolate remote bodies toward their latest synced position
 	if not is_local and _has_remote_target and is_standing:
 		global_position = global_position.lerp(_remote_target_pos, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))

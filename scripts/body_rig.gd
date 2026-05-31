@@ -84,6 +84,9 @@ func _setup_head_look(model: Node3D) -> void:
 	skel.add_child(_head_modifier)
 	print("BodyRig: head look bound to bone '%s' (idx %d)" % [skel.get_bone_name(head_idx), head_idx])
 
+func current_anim_name() -> String:
+	return _anim_player.current_animation if _anim_player else "<no player>"
+
 func set_head_look(yaw: float, pitch: float) -> void:
 	if _head_modifier:
 		_head_modifier.target_yaw = yaw
