@@ -287,20 +287,31 @@ const SYNC_INTERVAL: float = 0.05  # 20 updates/sec
 func _process(delta: float) -> void:
 	if _debug_visible:
 		_update_debug_overlay()
-	# Broadcast local body position to all peers
-	if is_standing and local_body != null and multiplayer.has_multiplayer_peer():
+	# Broadcast local body position + head look to all peers (standing AND seated,
+	# so others can see seated players turning their heads).
+	if local_body != null and multiplayer.has_multiplayer_peer():
 		_sync_timer += delta
 		if _sync_timer >= SYNC_INTERVAL:
 			_sync_timer = 0.0
 			var pos := local_body.global_position
+			var head_yaw := 0.0
+			var head_pitch := 0.0
+			if is_standing:
+				# Standing: body yaw already conveys left/right; head pitch adds up/down.
+				head_pitch = local_body.get_head_pitch()
+			else:
+				# Seated: look comes from the seated camera's offsets.
+				var look: Vector2 = camera_controller.get_look_offsets()
+				head_yaw = look.x
+				head_pitch = look.y
 			SteamMovementService.sync_body_position.rpc(
-				local_seat_index, pos.x, pos.y, pos.z, local_body.rotation.y
+				local_seat_index, pos.x, pos.y, pos.z, local_body.rotation.y, head_yaw, head_pitch
 			)
 
-func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float) -> void:
+func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body and not body.is_local:
-		body.apply_remote_state(pos, rot_y)
+		body.apply_remote_state(pos, rot_y, head_yaw, head_pitch)
 
 func _build_debug_overlay() -> void:
 	_debug_overlay = CanvasLayer.new()

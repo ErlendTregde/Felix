@@ -1318,10 +1318,10 @@ func _process(delta: float) -> void:
 				_sync_timer = 0.0
 				var pos := body.global_position
 				SteamMovementService.sync_body_position.rpc(
-					local_seat_index, pos.x, pos.y, pos.z, body.rotation.y
+					local_seat_index, pos.x, pos.y, pos.z, body.rotation.y, 0.0, body.get_head_pitch()
 				)
 
-func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float) -> void:
+func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body and not body.is_local:
-		body.apply_remote_state(pos, rot_y)
+		body.apply_remote_state(pos, rot_y, head_yaw, head_pitch)

@@ -13,6 +13,7 @@ class_name BodyRig
 var _anim_player: AnimationPlayer = null
 var _locomotion_state: String = ""
 var _model_built: bool = false
+var _head_modifier: HeadLookModifier = null
 
 # Maps our generic IDs to whatever Mixamo/Godot named the clips after import.
 const ANIM_ALIASES: Dictionary = {
@@ -57,7 +58,36 @@ func _build_model() -> void:
 	var walk_resolved := _resolve("walk")
 	print("BodyRig: idle resolves to='%s'  walk resolves to='%s'" % [idle_resolved, walk_resolved])
 
+	_setup_head_look(model)
+
 	_play_loop("idle")
+
+func _setup_head_look(model: Node3D) -> void:
+	var skels := model.find_children("*", "Skeleton3D", true, false)
+	if skels.is_empty():
+		push_warning("BodyRig: no Skeleton3D found — head look disabled")
+		return
+	var skel: Skeleton3D = skels[0] as Skeleton3D
+	# Find the head bone (Mixamo: "mixamorig_Head"). Match "Head" but skip the tip.
+	var head_idx := -1
+	for i in skel.get_bone_count():
+		var bn := skel.get_bone_name(i)
+		if bn.containsn("head") and not bn.containsn("headtop") and not bn.containsn("end"):
+			head_idx = i
+			break
+	if head_idx < 0:
+		push_warning("BodyRig: no head bone found — head look disabled")
+		return
+	_head_modifier = HeadLookModifier.new()
+	_head_modifier.name = "HeadLookModifier"
+	_head_modifier.head_bone = head_idx
+	skel.add_child(_head_modifier)
+	print("BodyRig: head look bound to bone '%s' (idx %d)" % [skel.get_bone_name(head_idx), head_idx])
+
+func set_head_look(yaw: float, pitch: float) -> void:
+	if _head_modifier:
+		_head_modifier.target_yaw = yaw
+		_head_modifier.target_pitch = pitch
 
 func play_anim(anim_id: String) -> void:
 	if not _anim_player:

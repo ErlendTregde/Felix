@@ -99,6 +99,10 @@ func smooth_move_to(target_pos: Vector3, duration: float = 1.0) -> void:
 		_base_transform = new_base
 		original_position = target_pos
 
+func get_look_offsets() -> Vector2:
+	"""Current smoothed look angles (x = yaw, y = pitch) for syncing head turn."""
+	return Vector2(_current_yaw, _current_pitch)
+
 func _reset_look_offsets() -> void:
 	_target_yaw = 0.0
 	_target_pitch = 0.0

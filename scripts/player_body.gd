@@ -32,11 +32,18 @@ var nearby_chair_seat_index: int = -1
 # Voice indicator
 var _talk_indicator: Label3D = null
 
+# Seated placement — raise the body so it sits on the chair instead of sinking
+# below the table. Tune this if the seated pose sits too high/low.
+const SEATED_Y_OFFSET: float = 3.0
+
 # Remote interpolation
 var _remote_target_pos: Vector3 = Vector3.ZERO
 var _remote_target_rot_y: float = 0.0
 var _has_remote_target: bool = false
 const REMOTE_LERP_SPEED: float = 12.0
+# Head look (yaw/pitch) — synced so others see players turning their heads.
+var _remote_head_yaw: float = 0.0
+var _remote_head_pitch: float = 0.0
 # Smoothed horizontal speed used to drive remote walk/idle (avoids flicker between
 # 20Hz network packets, where the per-frame lerp delta momentarily drops to ~0).
 var _remote_speed_smoothed: float = 0.0
@@ -114,17 +121,23 @@ func set_standing(standing: bool) -> void:
 ## Call this BEFORE set_standing(false) so is_seated is already true.
 func seat_at(chair_position: Vector3, face_direction: Vector3) -> void:
 	is_seated = true
-	# Place body at the chair, facing inward toward the table.
-	global_position = Vector3(chair_position.x, 0.0, chair_position.z)
+	# Place body at the chair, raised so the sitting pose rests on the chair.
+	global_position = Vector3(chair_position.x, SEATED_Y_OFFSET, chair_position.z)
 	# Same convention as spawn_at_chair: body forward (−Z) points toward the table.
 	if face_direction.length() > 0.001:
 		rotation.y = atan2(face_direction.x, face_direction.z)
 	set_standing(false)
 
-func apply_remote_state(pos: Vector3, rot_y: float) -> void:
+func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_pitch: float = 0.0) -> void:
 	_remote_target_pos = pos
 	_remote_target_rot_y = rot_y
+	_remote_head_yaw = head_yaw
+	_remote_head_pitch = head_pitch
 	_has_remote_target = true
+
+## Local player's vertical look angle (head pitch), for syncing while standing.
+func get_head_pitch() -> float:
+	return fps_camera.rotation.x if fps_camera else 0.0
 
 func _process(delta: float) -> void:
 	# Smoothly interpolate remote bodies toward their latest synced position
@@ -146,6 +159,10 @@ func _process(delta: float) -> void:
 			speed = _remote_speed_smoothed
 		body_rig.set_locomotion(speed)
 	_last_pos = global_position
+
+	# Drive the head-look on remote bodies so others see them turning their head.
+	if body_rig and not is_local and (is_standing or is_seated):
+		body_rig.set_head_look(_remote_head_yaw, _remote_head_pitch)
 
 	# Keep the 3rd-person camera pointed at the player head every frame.
 	if third_person_camera and third_person_camera.current:
