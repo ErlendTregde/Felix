@@ -34,7 +34,7 @@ var _talk_indicator: Label3D = null
 
 # Seated placement — raise the body so it sits on the chair instead of sinking
 # below the table, and push it back from the table edge so it doesn't clip through.
-const SEATED_Y_OFFSET: float = 3.0
+const SEATED_Y_OFFSET: float = 1.5
 const SEATED_OUTWARD_OFFSET: float = 2.0
 
 # Remote interpolation
