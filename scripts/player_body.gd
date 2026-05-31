@@ -93,8 +93,6 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 			body_rig.model_scene = load(model_path)
 
 func set_standing(standing: bool) -> void:
-	if standing and not is_local:
-		print("[PlayerBody] set_standing(TRUE) on REMOTE seat=%d peer=%d" % [seat_index, peer_id])
 	is_standing = standing
 	if standing:
 		is_seated = false
@@ -123,7 +121,6 @@ func set_standing(standing: bool) -> void:
 ## Position the body at a chair and play the sitting idle animation.
 ## Call this BEFORE set_standing(false) so is_seated is already true.
 func seat_at(chair_position: Vector3, face_direction: Vector3) -> void:
-	print("[PlayerBody] seat_at seat=%d local=%s" % [seat_index, is_local])
 	is_seated = true
 	# Place body at the chair, raised so the sitting pose rests on the chair, and
 	# pushed outward (face_direction points away from the table) so it doesn't clip.
@@ -145,15 +142,7 @@ func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_
 func get_head_pitch() -> float:
 	return fps_camera.rotation.x if fps_camera else 0.0
 
-var _dbg_frames: int = 0
 func _process(delta: float) -> void:
-	# Throttled diagnostic for remote bodies — what state + animation are they in?
-	if not is_local:
-		_dbg_frames += 1
-		if _dbg_frames % 90 == 0 and body_rig:
-			print("[PlayerBody] seat=%d standing=%s seated=%s anim='%s'" % [
-				seat_index, is_standing, is_seated, body_rig.current_anim_name()])
-
 	# Smoothly interpolate remote bodies toward their latest synced position
 	if not is_local and _has_remote_target and is_standing:
 		global_position = global_position.lerp(_remote_target_pos, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))

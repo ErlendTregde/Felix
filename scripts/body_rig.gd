@@ -63,12 +63,6 @@ func _build_model() -> void:
 	# Loop everything (Mixamo/FBX imports default to non-looping).
 	_force_loop_animations()
 
-	print("BodyRig animations after import: ", _anim_player.get_animation_list())
-
-	var idle_resolved := _resolve("idle")
-	var walk_resolved := _resolve("walk")
-	print("BodyRig: idle resolves to='%s'  walk resolves to='%s'" % [idle_resolved, walk_resolved])
-
 	_setup_head_look(model)
 
 	_play_loop("idle")
@@ -93,10 +87,6 @@ func _setup_head_look(model: Node3D) -> void:
 	_head_modifier.name = "HeadLookModifier"
 	_head_modifier.head_bone = head_idx
 	skel.add_child(_head_modifier)
-	print("BodyRig: head look bound to bone '%s' (idx %d)" % [skel.get_bone_name(head_idx), head_idx])
-
-func current_anim_name() -> String:
-	return _anim_player.current_animation if _anim_player else "<no player>"
 
 func set_head_look(yaw: float, pitch: float) -> void:
 	if _head_modifier:
@@ -231,7 +221,6 @@ func _try_import_idle() -> void:
 		idle_inst.free()
 		return
 	var src: AnimationPlayer = src_players[0] as AnimationPlayer
-	print("BodyRig idle FBX animations: ", src.get_animation_list())
 
 	# Get/create default library in destination.
 	if not _anim_player.has_animation_library(""):
@@ -249,7 +238,6 @@ func _try_import_idle() -> void:
 			if anim_name == "RESET":
 				continue
 			dest_lib.add_animation("idle", lib.get_animation(anim_name).duplicate())
-			print("BodyRig: stored idle anim as 'idle' (source name was '%s')" % anim_name)
 			idle_inst.free()
 			return
 	push_warning("BodyRig: no non-RESET animation found in idle FBX")
