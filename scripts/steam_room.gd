@@ -172,6 +172,9 @@ func _refresh_seat_visuals(_room_state: RoomState) -> void:
 		# Skip standing players (their PlayerBody is visible instead)
 		if pb.is_standing:
 			continue
+		# Skip seated players whose 3D body is showing the sitting idle pose
+		if pb.is_seated:
+			continue
 		# Skip local player (they see through the seated camera)
 		if pb.is_local:
 			continue
@@ -448,7 +451,9 @@ func _spawn_all_player_bodies() -> void:
 			body.spawn_at_chair(chair_pos, face_dir)
 			body.set_standing(true)
 			continue
-		body.set_standing(false)
+		var s_chair_pos := CHAIR_POSITIONS[body.seat_index] if body.seat_index < CHAIR_POSITIONS.size() else Vector3.ZERO
+		var s_face_dir := CHAIR_FACE_DIRECTIONS[body.seat_index] if body.seat_index < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+		body.seat_at(s_chair_pos, s_face_dir)
 		SteamMovementService._standing_seats[body.seat_index] = false
 		if body.is_local:
 			is_standing = false
@@ -523,9 +528,10 @@ func _on_player_stood(seat_index: int) -> void:
 func _on_player_sat(seat_index: int, target_seat: int) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body:
-		body.set_standing(false)
-		# Update the body's seat_index for visual positioning (don't move dict key)
 		body.seat_index = target_seat
+		var chair_pos := CHAIR_POSITIONS[target_seat] if target_seat < CHAIR_POSITIONS.size() else Vector3.ZERO
+		var face_dir := CHAIR_FACE_DIRECTIONS[target_seat] if target_seat < CHAIR_FACE_DIRECTIONS.size() else Vector3(0, 0, 1)
+		body.seat_at(chair_pos, face_dir)
 
 	# Refresh seated visuals to show this player's avatar again
 	_refresh_seat_visuals(SteamRoomService.get_room_state())

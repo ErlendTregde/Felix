@@ -21,6 +21,7 @@ const TP_MAX_ZOOM: float = 30.0
 const TP_PITCH_LIMIT: float = 1.05  # ~±60° pitch (positive = look up, negative = look down)
 
 var is_standing: bool = false
+var is_seated: bool = false   # True when sitting at a chair (body visible, no movement)
 var is_local: bool = false  # Whether this body belongs to the local player
 var mouse_rotation: Vector2 = Vector2.ZERO  # x = yaw, y = pitch
 var avatar_color: Color = Color.WHITE  # Used by lobby for seated-visual placeholders
@@ -85,8 +86,13 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 
 func set_standing(standing: bool) -> void:
 	is_standing = standing
-	visible = standing
-	# Only the local player processes input and physics
+	if standing:
+		is_seated = false
+	# Visible when standing, or when seated for REMOTE players (so others see the
+	# sitting pose). The local player never renders their own seated body — they'd
+	# only see the back of their own head in front of the seated table camera.
+	visible = standing or (is_seated and not is_local)
+	# Only the local player processes input and physics — never when seated.
 	set_physics_process(standing and is_local)
 	set_process_input(standing and is_local)
 
@@ -101,6 +107,19 @@ func set_standing(standing: bool) -> void:
 		nearby_chair_seat_index = -1
 		if interaction_label:
 			interaction_label.visible = false
+		if is_seated and body_rig:
+			body_rig.play_anim("seated_idle")
+
+## Position the body at a chair and play the sitting idle animation.
+## Call this BEFORE set_standing(false) so is_seated is already true.
+func seat_at(chair_position: Vector3, face_direction: Vector3) -> void:
+	is_seated = true
+	# Place body at the chair, facing inward toward the table.
+	global_position = Vector3(chair_position.x, 0.0, chair_position.z)
+	# Same convention as spawn_at_chair: body forward (−Z) points toward the table.
+	if face_direction.length() > 0.001:
+		rotation.y = atan2(face_direction.x, face_direction.z)
+	set_standing(false)
 
 func apply_remote_state(pos: Vector3, rot_y: float) -> void:
 	_remote_target_pos = pos

@@ -46,6 +46,8 @@ func _build_model() -> void:
 	_try_import_walk()
 	# Merge idle animation from separately downloaded FBX.
 	_try_import_idle()
+	# Merge sitting idle animation.
+	_try_import_sitting_idle()
 	# Loop everything (Mixamo/FBX imports default to non-looping).
 	_force_loop_animations()
 
@@ -183,3 +185,35 @@ func _try_import_idle() -> void:
 			return
 	push_warning("BodyRig: no non-RESET animation found in idle FBX")
 	idle_inst.free()
+
+func _try_import_sitting_idle() -> void:
+	var path := "res://assets/models/characters/body/Sitting Idle.fbx"
+	if not ResourceLoader.exists(path):
+		push_warning("BodyRig: Sitting Idle FBX not found: " + path)
+		return
+	var packed := load(path) as PackedScene
+	if not packed:
+		push_warning("BodyRig: could not load Sitting Idle FBX")
+		return
+	var inst: Node = packed.instantiate()
+	var src_players := inst.find_children("*", "AnimationPlayer", true, false)
+	if src_players.is_empty():
+		inst.free()
+		return
+	var src: AnimationPlayer = src_players[0] as AnimationPlayer
+	if not _anim_player.has_animation_library(""):
+		_anim_player.add_animation_library("", AnimationLibrary.new())
+	var dest_lib: AnimationLibrary = _anim_player.get_animation_library("")
+	if dest_lib.has_animation("seated_idle"):
+		inst.free()
+		return
+	for lib_name in src.get_animation_library_list():
+		var lib: AnimationLibrary = src.get_animation_library(lib_name)
+		for anim_name in lib.get_animation_list():
+			if anim_name == "RESET":
+				continue
+			dest_lib.add_animation("seated_idle", lib.get_animation(anim_name).duplicate())
+			inst.free()
+			return
+	push_warning("BodyRig: no non-RESET animation found in Sitting Idle FBX")
+	inst.free()
