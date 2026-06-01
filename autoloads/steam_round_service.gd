@@ -1345,16 +1345,23 @@ func _client_opponent_drew(seat_idx: int) -> void:
 	card.initialize(dummy, false)
 	card.is_interactable = false
 	card.global_position = tbl.draw_pile_marker.global_position
-	# Held a bit further from the player (toward table centre) so it doesn't clip the body.
-	var held_pos: Vector3 = tbl.held_card_position(seat_idx)
-	card.move_to(held_pos, 0.5, false)
-	# Stand the card upright facing the holder (back toward everyone else).
-	card.rotation = Vector3(1.2, tbl.view_helper.get_card_view_rotation_for(seat_idx), 0)
 	_opponent_held_card = card
-	_log("Opponent seat %d drew (face-down animation)" % seat_idx)
+	_log("Opponent seat %d drew (held card follows hand)" % seat_idx)
 
 	# Reach-for-pile hand animation on the drawing player's body.
 	Events.player_drew_card.emit(seat_idx)
+
+	# Stand the card upright facing the holder (back toward everyone else); this
+	# rotation stays fixed while only the position tracks the hand.
+	card.rotation = Vector3(1.2, tbl.view_helper.get_card_view_rotation_for(seat_idx), 0)
+
+	# Glue the held card to that player's hand (falls back to a fixed spot if the
+	# body has no hand tracking).
+	var body = tbl._find_body_at_seat(seat_idx)
+	if body and body.has_method("hold_card_visual") and body.body_rig and body.body_rig.has_hand_tracking():
+		body.hold_card_visual(card)
+	else:
+		card.move_to(tbl.held_card_position(seat_idx), 0.5, false)
 
 ## Send discard animation to all non-acting peers after any player discards their drawn card.
 func broadcast_opponent_discard(acting_seat_idx: int, card_id: int) -> void:

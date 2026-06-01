@@ -45,6 +45,8 @@ const REMOTE_LERP_SPEED: float = 12.0
 # Head look (yaw/pitch) — synced so others see players turning their heads.
 var _remote_head_yaw: float = 0.0
 var _remote_head_pitch: float = 0.0
+# Card currently following this body's hand (the held/drawn card).
+var _held_card: Node3D = null
 # Smoothed horizontal speed used to drive remote walk/idle (avoids flicker between
 # 20Hz network packets, where the per-frame lerp delta momentarily drops to ~0).
 var _remote_speed_smoothed: float = 0.0
@@ -152,8 +154,14 @@ func reach_and_hold(pile_pos: Vector3, hold_pos: Vector3) -> void:
 	if is_instance_valid(body_rig):
 		body_rig.move_reach(hold_pos, 0.3)
 
-## Stop holding — the hand returns to the seated pose.
+## Make a card follow this body's right hand each frame (the held card).
+func hold_card_visual(card: Node3D) -> void:
+	if body_rig and body_rig.has_hand_tracking():
+		_held_card = card
+
+## Stop holding — the hand returns to the seated pose and the card is released.
 func release_card() -> void:
+	_held_card = null
 	if body_rig:
 		body_rig.end_reach()
 
@@ -185,6 +193,10 @@ func _process(delta: float) -> void:
 	# Drive the head-look on remote bodies so others see them turning their head.
 	if body_rig and not is_local and (is_standing or is_seated):
 		body_rig.set_head_look(_remote_head_yaw, _remote_head_pitch)
+
+	# Keep the held card glued to the hand (position only — its readable rotation is preserved).
+	if _held_card != null and is_instance_valid(_held_card) and body_rig:
+		_held_card.global_position = body_rig.get_hand_position()
 
 	# Keep the 3rd-person camera pointed at the player head every frame.
 	if third_person_camera and third_person_camera.current:

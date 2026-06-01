@@ -15,6 +15,10 @@ class_name BodyRig
 ## Body-local offset for the hold target so the PALM (not the wrist) meets the card.
 ## The IK puts the wrist on the target; nudge it back/up so the card sits in the hand.
 @export var hold_hand_offset: Vector3 = Vector3.ZERO
+## A held card sits at the right hand bone plus this body-local offset.
+## (The card keeps a fixed readable rotation set by the caller, so it always
+## faces the holder — only its position tracks the hand.)
+@export var card_in_hand_offset: Vector3 = Vector3.ZERO
 
 var _anim_player: AnimationPlayer = null
 var _locomotion_state: String = ""
@@ -26,6 +30,8 @@ var _head_modifier: HeadLookModifier = null
 var _hand_ik: SkeletonIK3D = null
 var _hand_target: Marker3D = null
 var _reach_tween: Tween = null
+var _skel: Skeleton3D = null
+var _hand_bone_idx: int = -1
 
 # Maps our generic IDs to whatever Mixamo/Godot named the clips after import.
 const ANIM_ALIASES: Dictionary = {
@@ -113,6 +119,7 @@ func _setup_hand_reach(model: Node3D) -> void:
 	if skels.is_empty():
 		return
 	var skel: Skeleton3D = skels[0] as Skeleton3D
+	_skel = skel
 	# Mixamo arm chain: RightArm (upper) → RightForeArm → RightHand.
 	var root_bone := ""
 	var tip_bone := ""
@@ -122,6 +129,7 @@ func _setup_hand_reach(model: Node3D) -> void:
 			root_bone = skel.get_bone_name(i)
 		elif bn.ends_with("righthand"):
 			tip_bone = skel.get_bone_name(i)
+			_hand_bone_idx = i
 	if root_bone == "" or tip_bone == "":
 		push_warning("BodyRig: right arm/hand bones not found — hand reach disabled")
 		return
@@ -172,6 +180,17 @@ func _blend_ik(target: float, then_stop: bool) -> void:
 	_reach_tween.tween_property(_hand_ik, "interpolation", target, 0.25)
 	if then_stop:
 		_reach_tween.tween_callback(_hand_ik.stop)
+
+## World position a held card should sit at, tracking the right hand bone.
+func get_hand_position() -> Vector3:
+	if not _skel or _hand_bone_idx < 0:
+		return global_position
+	var hand_world: Vector3 = (_skel.global_transform * _skel.get_bone_global_pose(_hand_bone_idx)).origin
+	# Offset is body-local (global_transform.basis is the body's facing, unit scale).
+	return hand_world + global_transform.basis * card_in_hand_offset
+
+func has_hand_tracking() -> bool:
+	return _skel != null and _hand_bone_idx >= 0
 
 func play_anim(anim_id: String) -> void:
 	if not _anim_player:
