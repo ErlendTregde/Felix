@@ -1348,6 +1348,8 @@ func _client_opponent_drew(seat_idx: int) -> void:
 	# Held a bit further from the player (toward table centre) so it doesn't clip the body.
 	var held_pos: Vector3 = tbl.held_card_position(seat_idx)
 	card.move_to(held_pos, 0.5, false)
+	# Stand the card upright facing the holder (back toward everyone else).
+	card.rotation = Vector3(1.2, tbl.view_helper.get_card_view_rotation_for(seat_idx), 0)
 	_opponent_held_card = card
 	_log("Opponent seat %d drew (face-down animation)" % seat_idx)
 

@@ -9,6 +9,12 @@ class_name BodyRig
 			_build_model()
 ## Scale to match the game's unit system (capsule height ~11, camera at Y=10).
 @export var model_scale: float = 6.1
+## Hand orientation while holding a card, in degrees, relative to the body's facing.
+## Tune these three numbers until the palm cups the card (right-side up).
+@export var hold_hand_euler_deg: Vector3 = Vector3(-90, 0, 0)
+## Body-local offset for the hold target so the PALM (not the wrist) meets the card.
+## The IK puts the wrist on the target; nudge it back/up so the card sits in the hand.
+@export var hold_hand_offset: Vector3 = Vector3.ZERO
 
 var _anim_player: AnimationPlayer = null
 var _locomotion_state: String = ""
@@ -130,24 +136,28 @@ func _setup_hand_reach(model: Node3D) -> void:
 	_hand_ik.tip_bone = tip_bone
 	_hand_ik.interpolation = 0.0       # 0 = no effect until we reach
 	_hand_ik.use_magnet = false        # tune later if the elbow bends oddly
-	_hand_ik.override_tip_basis = false  # keep the hand's natural pose rotation (don't snap to target)
+	_hand_ik.override_tip_basis = true # orient the hand to the target (hold pose)
 	skel.add_child(_hand_ik)
 	_hand_ik.target_node = _hand_ik.get_path_to(_hand_target)
 
 ## Start reaching the right hand to a world point, blending the IK in over ~0.25s.
+## The hand is oriented via hold_hand_euler_deg (relative to the body's facing).
 func begin_reach(world_pos: Vector3) -> void:
 	if not _hand_ik or not _hand_target:
 		return
 	_hand_target.global_position = world_pos
+	_hand_target.rotation_degrees = hold_hand_euler_deg
 	_hand_ik.start()
 	_blend_ik(1.0, false)
 
 ## Smoothly slide the reach target to a new world point (e.g. pile → held card).
+## Applies hold_hand_offset (body-local) so the palm seats on the card.
 func move_reach(world_pos: Vector3, duration: float = 0.3) -> void:
 	if not _hand_ik or not _hand_target:
 		return
+	var seated_pos := world_pos + global_transform.basis * hold_hand_offset
 	var t := create_tween()
-	t.tween_property(_hand_target, "global_position", world_pos, duration)
+	t.tween_property(_hand_target, "global_position", seated_pos, duration)
 
 ## End the reach, blending back to the animated pose, then stop solving.
 func end_reach() -> void:
