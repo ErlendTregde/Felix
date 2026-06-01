@@ -201,8 +201,10 @@ func _ready() -> void:
 	SteamMovementService.player_sat.connect(_on_player_sat)
 	SteamMovementService.position_updated.connect(_on_remote_position_updated)
 
-	# Reach-for-pile hand animation when any seat draws
+	# Hand animations: reach for pile + hold the drawn card, release on resolve / new turn
 	Events.player_drew_card.connect(_on_player_drew_card)
+	Events.player_resolved_card.connect(_on_player_resolved_card)
+	Events.turn_started.connect(_on_turn_started_release_hands)
 
 	# Connect game state signals for round end
 	Events.game_state_changed.connect(_on_game_state_changed)
@@ -1263,10 +1265,30 @@ func _find_body_at_seat(current_seat: int) -> PlayerBody:
 			return body
 	return null
 
+## World position where seat's drawn card is held — kept in sync with the
+## opponent held-card visual in steam_round_service.
+func held_card_position(seat_index: int) -> Vector3:
+	if seat_index < 0 or seat_index >= player_grids.size():
+		return Vector3.ZERO
+	var grid_pos: Vector3 = player_grids[seat_index].global_position
+	var to_center := -Vector3(grid_pos.x, 0, grid_pos.z).normalized()
+	return grid_pos + Vector3(0, 1.0, 0) + to_center * 1.0
+
 func _on_player_drew_card(seat_index: int) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body and draw_pile_marker:
-		body.reach_then_release(draw_pile_marker.global_position)
+		body.reach_and_hold(draw_pile_marker.global_position, held_card_position(seat_index))
+
+func _on_player_resolved_card(seat_index: int) -> void:
+	var body := _find_body_at_seat(seat_index)
+	if body:
+		body.release_card()
+
+func _on_turn_started_release_hands(_player_id: int) -> void:
+	# Safety net: a new turn means no one is holding a drawn card anymore.
+	for body in player_bodies.values():
+		if is_instance_valid(body):
+			body.release_card()
 
 func _on_player_stood(seat_index: int) -> void:
 	# Players cannot stand during an active round. A stand event arriving now is

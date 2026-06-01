@@ -31,6 +31,9 @@ signal card_drawn(card_data: Resource)
 ## Fires on every client when a seat draws — drives the reach-for-pile hand animation.
 @warning_ignore("unused_signal")
 signal player_drew_card(seat_index: int)
+## Fires on every client when a seat's drawn card is resolved (discard/swap) — releases the held-card hand.
+@warning_ignore("unused_signal")
+signal player_resolved_card(seat_index: int)
 @warning_ignore("unused_signal")
 signal card_played(card_data: Resource, player_id: int)
 @warning_ignore("unused_signal")

@@ -1345,7 +1345,8 @@ func _client_opponent_drew(seat_idx: int) -> void:
 	card.initialize(dummy, false)
 	card.is_interactable = false
 	card.global_position = tbl.draw_pile_marker.global_position
-	var held_pos: Vector3 = tbl.player_grids[seat_idx].global_position + Vector3(0, 1.2, 0)
+	# Held a bit further from the player (toward table centre) so it doesn't clip the body.
+	var held_pos: Vector3 = tbl.held_card_position(seat_idx)
 	card.move_to(held_pos, 0.5, false)
 	_opponent_held_card = card
 	_log("Opponent seat %d drew (face-down animation)" % seat_idx)
@@ -1357,6 +1358,8 @@ func _client_opponent_drew(seat_idx: int) -> void:
 func broadcast_opponent_discard(acting_seat_idx: int, card_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
+	# Host: release the held-card hand for this seat.
+	Events.player_resolved_card.emit(acting_seat_idx)
 	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
@@ -1371,6 +1374,8 @@ func broadcast_opponent_discard(acting_seat_idx: int, card_id: int) -> void:
 func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
 	if _round_controller == null:
 		return
+	# Client: release the held-card hand for this seat.
+	Events.player_resolved_card.emit(seat_idx)
 	var tbl = _round_controller.table
 	var card_data = tbl.deck_manager.find_card_data_by_id(card_id)
 	var discard_pos: Vector3 = tbl.discard_pile_marker.global_position
@@ -1411,6 +1416,8 @@ func _client_opponent_discarded(seat_idx: int, card_id: int) -> void:
 func broadcast_opponent_swap(acting_seat_idx: int, slot: int, is_penalty: bool, discarded_card_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():
 		return
+	# Host: release the held-card hand for this seat.
+	Events.player_resolved_card.emit(acting_seat_idx)
 	var rs: RoomState = SteamRoomService.get_room_state()
 	for peer_id in multiplayer.get_peers():
 		var steam_id := int(State.lobby_data.peer_members.get(peer_id, 0))
@@ -1428,6 +1435,8 @@ func _client_opponent_swapped(seat_idx: int, slot: int, is_penalty: bool, _disca
 	# The discard pile visual is updated separately via the incoming snapshot's top_discard_card_id.
 	if _round_controller == null:
 		return
+	# Client: release the held-card hand for this seat.
+	Events.player_resolved_card.emit(seat_idx)
 	var tbl = _round_controller.table
 	if seat_idx < 0 or seat_idx >= tbl.player_grids.size():
 		return

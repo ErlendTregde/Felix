@@ -142,14 +142,20 @@ func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_
 func get_head_pitch() -> float:
 	return fps_camera.rotation.x if fps_camera else 0.0
 
-## Reach the right hand toward a world point, hold briefly, then return.
-func reach_then_release(world_pos: Vector3, hold: float = 0.5) -> void:
+## Reach to the draw pile, then move the hand to where the drawn card is held
+## and keep it there until release_card() is called.
+func reach_and_hold(pile_pos: Vector3, hold_pos: Vector3) -> void:
 	if not body_rig:
 		return
-	body_rig.reach_to(world_pos)
-	await get_tree().create_timer(0.25 + hold).timeout
+	body_rig.begin_reach(pile_pos)
+	await get_tree().create_timer(0.45).timeout
 	if is_instance_valid(body_rig):
-		body_rig.release_reach()
+		body_rig.move_reach(hold_pos, 0.3)
+
+## Stop holding — the hand returns to the seated pose.
+func release_card() -> void:
+	if body_rig:
+		body_rig.end_reach()
 
 func _process(delta: float) -> void:
 	# Smoothly interpolate remote bodies toward their latest synced position
