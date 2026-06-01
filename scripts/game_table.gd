@@ -201,6 +201,9 @@ func _ready() -> void:
 	SteamMovementService.player_sat.connect(_on_player_sat)
 	SteamMovementService.position_updated.connect(_on_remote_position_updated)
 
+	# Reach-for-pile hand animation when any seat draws
+	Events.player_drew_card.connect(_on_player_drew_card)
+
 	# Connect game state signals for round end
 	Events.game_state_changed.connect(_on_game_state_changed)
 
@@ -1259,6 +1262,11 @@ func _find_body_at_seat(current_seat: int) -> PlayerBody:
 		if is_instance_valid(body) and body.seat_index == current_seat:
 			return body
 	return null
+
+func _on_player_drew_card(seat_index: int) -> void:
+	var body := _find_body_at_seat(seat_index)
+	if body and draw_pile_marker:
+		body.reach_then_release(draw_pile_marker.global_position)
 
 func _on_player_stood(seat_index: int) -> void:
 	# Players cannot stand during an active round. A stand event arriving now is

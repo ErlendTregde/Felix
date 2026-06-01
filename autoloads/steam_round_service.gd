@@ -1350,6 +1350,9 @@ func _client_opponent_drew(seat_idx: int) -> void:
 	_opponent_held_card = card
 	_log("Opponent seat %d drew (face-down animation)" % seat_idx)
 
+	# Reach-for-pile hand animation on the drawing player's body.
+	Events.player_drew_card.emit(seat_idx)
+
 ## Send discard animation to all non-acting peers after any player discards their drawn card.
 func broadcast_opponent_discard(acting_seat_idx: int, card_id: int) -> void:
 	if not multiplayer.has_multiplayer_peer() or not multiplayer.is_server():

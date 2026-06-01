@@ -15,6 +15,12 @@ var _locomotion_state: String = ""
 var _model_built: bool = false
 var _head_modifier: HeadLookModifier = null
 
+# Right-hand IK for reaching (draw pile, holding cards). Prototype uses the built-in
+# SkeletonIK3D (deprecated but functional in 4.6) — swap for a custom solver later.
+var _hand_ik: SkeletonIK3D = null
+var _hand_target: Marker3D = null
+var _reach_tween: Tween = null
+
 # Maps our generic IDs to whatever Mixamo/Godot named the clips after import.
 const ANIM_ALIASES: Dictionary = {
 	"walk": ["mixamo_com", "Walking", "walking", "Walk", "mixamo.com"],
@@ -64,6 +70,7 @@ func _build_model() -> void:
 	_force_loop_animations()
 
 	_setup_head_look(model)
+	_setup_hand_reach(model)
 
 	_play_loop("idle")
 
@@ -92,6 +99,60 @@ func set_head_look(yaw: float, pitch: float) -> void:
 	if _head_modifier:
 		_head_modifier.target_yaw = yaw
 		_head_modifier.target_pitch = pitch
+
+# ── Right-hand reach (IK) ───────────────────────────────────────────────────
+
+func _setup_hand_reach(model: Node3D) -> void:
+	var skels := model.find_children("*", "Skeleton3D", true, false)
+	if skels.is_empty():
+		return
+	var skel: Skeleton3D = skels[0] as Skeleton3D
+	# Mixamo arm chain: RightArm (upper) → RightForeArm → RightHand.
+	var root_bone := ""
+	var tip_bone := ""
+	for i in skel.get_bone_count():
+		var bn := skel.get_bone_name(i).to_lower()
+		if bn.ends_with("rightarm"):
+			root_bone = skel.get_bone_name(i)
+		elif bn.ends_with("righthand"):
+			tip_bone = skel.get_bone_name(i)
+	if root_bone == "" or tip_bone == "":
+		push_warning("BodyRig: right arm/hand bones not found — hand reach disabled")
+		return
+
+	_hand_target = Marker3D.new()
+	_hand_target.name = "HandReachTarget"
+	add_child(_hand_target)
+
+	_hand_ik = SkeletonIK3D.new()
+	_hand_ik.name = "HandIK"
+	_hand_ik.root_bone = root_bone
+	_hand_ik.tip_bone = tip_bone
+	_hand_ik.interpolation = 0.0   # 0 = no effect until we reach
+	_hand_ik.use_magnet = false    # tune later if the elbow bends oddly
+	skel.add_child(_hand_ik)
+	_hand_ik.target_node = _hand_ik.get_path_to(_hand_target)
+
+## Reach the right hand toward a world-space point, blending in over ~0.25s.
+func reach_to(world_pos: Vector3) -> void:
+	if not _hand_ik or not _hand_target:
+		return
+	_hand_target.global_position = world_pos
+	_hand_ik.start()
+	if _reach_tween and _reach_tween.is_valid():
+		_reach_tween.kill()
+	_reach_tween = create_tween()
+	_reach_tween.tween_property(_hand_ik, "interpolation", 1.0, 0.25)
+
+## Release the reach, blending back to the animated pose, then stop solving.
+func release_reach() -> void:
+	if not _hand_ik:
+		return
+	if _reach_tween and _reach_tween.is_valid():
+		_reach_tween.kill()
+	_reach_tween = create_tween()
+	_reach_tween.tween_property(_hand_ik, "interpolation", 0.0, 0.25)
+	_reach_tween.tween_callback(_hand_ik.stop)
 
 func play_anim(anim_id: String) -> void:
 	if not _anim_player:

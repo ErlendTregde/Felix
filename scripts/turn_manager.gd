@@ -193,6 +193,9 @@ func draw_card_from_pile() -> Card3D:
 		SteamRoundService.notify_client_draw(actor, card_data.card_id)
 		SteamRoundService.broadcast_opponent_draw(actor)
 
+	# Reach-for-pile hand animation (host sees every seat's draw here).
+	Events.player_drew_card.emit(GameManager.current_player_index)
+
 	# Create the card at the top of the draw pile stack
 	var card = table.card_scene.instantiate()
 	table.add_child(card)

@@ -142,6 +142,15 @@ func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_
 func get_head_pitch() -> float:
 	return fps_camera.rotation.x if fps_camera else 0.0
 
+## Reach the right hand toward a world point, hold briefly, then return.
+func reach_then_release(world_pos: Vector3, hold: float = 0.5) -> void:
+	if not body_rig:
+		return
+	body_rig.reach_to(world_pos)
+	await get_tree().create_timer(0.25 + hold).timeout
+	if is_instance_valid(body_rig):
+		body_rig.release_reach()
+
 func _process(delta: float) -> void:
 	# Smoothly interpolate remote bodies toward their latest synced position
 	if not is_local and _has_remote_target and is_standing:
