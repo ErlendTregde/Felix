@@ -228,6 +228,7 @@ func _apply_local_view(room_state: RoomState) -> void:
 	# Use local_seat_index which tracks the chair we're actually sitting in
 	var seat_index := local_seat_index
 	var direction := _get_seat_direction(seat_index)
+	# Overhead seated view (the good angle); the local head is hidden so it doesn't block.
 	var camera_pos := direction * SEAT_CAMERA_RADIUS
 	camera_pos.y = TABLE_SURFACE_Y + SEAT_CAMERA_HEIGHT_OFFSET
 	var look_target := Vector3(0, TABLE_SURFACE_Y + SEAT_CAMERA_LOOK_HEIGHT_OFFSET, 0)
@@ -299,19 +300,16 @@ func _process(delta: float) -> void:
 			if is_standing:
 				# Standing: body yaw already conveys left/right; head pitch adds up/down.
 				head_pitch = local_body.get_head_pitch()
-			else:
-				# Seated: look comes from the seated camera's offsets.
-				var look: Vector2 = camera_controller.get_look_offsets()
-				head_yaw = look.x
-				head_pitch = look.y
+			# Seated now uses the fixed first-person camera facing the table, so there's
+			# no head-look offset to sync (head stays forward).
 			SteamMovementService.sync_body_position.rpc(
-				local_seat_index, pos.x, pos.y, pos.z, local_body.rotation.y, head_yaw, head_pitch
+				local_seat_index, pos.x, pos.y, pos.z, local_body.rotation.y, head_yaw, head_pitch, local_body.is_smoking_emote()
 			)
 
-func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float) -> void:
+func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float, smoking: bool) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body and not body.is_local:
-		body.apply_remote_state(pos, rot_y, head_yaw, head_pitch)
+		body.apply_remote_state(pos, rot_y, head_yaw, head_pitch, smoking)
 
 func _build_debug_overlay() -> void:
 	_debug_overlay = CanvasLayer.new()
@@ -468,13 +466,13 @@ func _spawn_all_player_bodies() -> void:
 		SteamMovementService._standing_seats[body.seat_index] = false
 		if body.is_local:
 			is_standing = false
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			body.deactivate_fps_camera()
-			camera_controller.set_process(true)
-			camera_controller.set_process_input(true)
-			camera_controller.camera.make_current()
+			# Seated uses the SAME first-person camera as walking (no overhead switch).
+			# Mouse stays captured for look; Esc frees it to click lobby buttons.
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			body.activate_fps_camera()
+			camera_controller.set_process(false)
+			camera_controller.set_process_input(false)
 			var spawn_room_state := SteamRoomService.get_room_state()
-			_apply_local_view(spawn_room_state)
 			_refresh_buttons(spawn_room_state)
 
 func _on_leave_seat_pressed() -> void:
@@ -553,14 +551,15 @@ func _on_player_sat(seat_index: int, target_seat: int) -> void:
 		# Update local seat index if we sat in a different chair
 		if target_seat != local_seat_index:
 			local_seat_index = target_seat
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		# Seated uses the SAME first-person camera as walking (no overhead switch) — the
+		# only difference from walking is the sitting animation and locked movement. Keep
+		# the mouse captured so you can still look around (Esc frees it to click buttons).
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		if body:
-			body.deactivate_fps_camera()
-		camera_controller.set_process(true)
-		camera_controller.set_process_input(true)
-		camera_controller.camera.make_current()
+			body.activate_fps_camera()
+		camera_controller.set_process(false)
+		camera_controller.set_process_input(false)
 		var room_state := SteamRoomService.get_room_state()
-		_apply_local_view(room_state)
 		_refresh_buttons(room_state)
 
 ## ── Lobby actions ────────────────────────────────────────────────────────

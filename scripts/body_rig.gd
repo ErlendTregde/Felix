@@ -33,6 +33,13 @@ var _reach_tween: Tween = null
 var _skel: Skeleton3D = null
 var _hand_bone_idx: int = -1
 
+# Smoking emote: a looping smoke pose + a particle puff that rides the hand/cigarette.
+var _is_smoking: bool = false
+var _smoke_emitter: Node3D = null
+var _smoke_particles: GPUParticles3D = null
+## World-space offset from the right hand to the cigarette tip where smoke is emitted.
+@export var smoke_tip_offset: Vector3 = Vector3(0, 1.0, 0)
+
 # Maps our generic IDs to whatever Mixamo/Godot named the clips after import.
 const ANIM_ALIASES: Dictionary = {
 	"walk": ["mixamo_com", "Walking", "walking", "Walk", "mixamo.com"],
@@ -78,11 +85,14 @@ func _build_model() -> void:
 	_try_import_idle()
 	# Merge sitting idle animation.
 	_try_import_sitting_idle()
+	# Merge the smoking emote (glTF clip — track paths get retargeted to this rig).
+	_try_import_smoke()
 	# Loop everything (Mixamo/FBX imports default to non-looping).
 	_force_loop_animations()
 
 	_setup_head_look(model)
 	_setup_hand_reach(model)
+	_setup_smoke_particles()
 
 	_play_loop("idle")
 
@@ -192,6 +202,167 @@ func get_hand_position() -> Vector3:
 func has_hand_tracking() -> bool:
 	return _skel != null and _hand_bone_idx >= 0
 
+# ── Smoking emote ────────────────────────────────────────────────────────────
+
+func _process(_delta: float) -> void:
+	# While smoking, keep the smoke puff riding the hand/cigarette tip (world space).
+	if _is_smoking and _smoke_emitter and has_hand_tracking():
+		_smoke_emitter.global_position = get_hand_position() + global_transform.basis * smoke_tip_offset
+
+## Play the smoking pose and start the smoke puff. Idempotent.
+func start_smoke() -> void:
+	if _is_smoking:
+		return
+	_is_smoking = true
+	play_anim("smoke")
+	if _smoke_particles:
+		_smoke_particles.emitting = true
+
+## Stop smoking. The caller resumes locomotion/idle. Idempotent.
+func stop_smoke() -> void:
+	if not _is_smoking:
+		return
+	_is_smoking = false
+	if _smoke_particles:
+		_smoke_particles.emitting = false
+	# Force locomotion to re-apply (current anim is "smoke", so idle/walk must replay).
+	_locomotion_state = ""
+
+func is_smoking() -> bool:
+	return _is_smoking
+
+func _setup_smoke_particles() -> void:
+	# Emitter lives under BodyRig (unscaled) and is driven to the hand each frame, so the
+	# particle sizes/velocities stay in world units (not multiplied by the 6.1 model scale).
+	var emitter := Node3D.new()
+	emitter.name = "SmokeEmitter"
+	add_child(emitter)
+
+	var p := GPUParticles3D.new()
+	p.name = "Smoke"
+	p.amount = 12
+	p.lifetime = 2.5
+	p.emitting = false
+	p.local_coords = false  # puffs drift in world space instead of snapping with the hand
+
+	var mat := ParticleProcessMaterial.new()
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	mat.emission_sphere_radius = 0.1
+	mat.direction = Vector3(0, 1, 0)
+	mat.spread = 10.0
+	mat.initial_velocity_min = 0.8
+	mat.initial_velocity_max = 1.6
+	mat.gravity = Vector3(0, 1.0, 0)  # drifts upward
+	mat.scale_min = 0.6
+	mat.scale_max = 1.0
+	var scale_curve := Curve.new()
+	scale_curve.add_point(Vector2(0.0, 0.3))
+	scale_curve.add_point(Vector2(1.0, 1.5))  # small → larger over life
+	var sct := CurveTexture.new()
+	sct.curve = scale_curve
+	mat.scale_curve = sct
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.85, 0.85, 0.85, 0.45))
+	grad.set_color(1, Color(0.85, 0.85, 0.85, 0.0))  # fade alpha to 0 over life
+	var gt := GradientTexture1D.new()
+	gt.gradient = grad
+	mat.color_ramp = gt
+	p.process_material = mat
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.5, 1.5)
+	var dmat := StandardMaterial3D.new()
+	dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	dmat.albedo_texture = _make_soft_round_texture()
+	dmat.vertex_color_use_as_albedo = true  # apply the per-particle color ramp
+	quad.material = dmat
+	p.draw_pass_1 = quad
+
+	emitter.add_child(p)
+	_smoke_emitter = emitter
+	_smoke_particles = p
+
+## A soft round white→transparent radial texture, so quad puffs look like smoke blobs.
+func _make_soft_round_texture() -> Texture2D:
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(0.5, 0.0)
+	t.width = 64
+	t.height = 64
+	return t
+
+func _try_import_smoke() -> void:
+	# FBX export of the smoke pose. It was re-exported with an "Armature/Skeleton3D"
+	# hierarchy plus a "Cigarette" mesh, so its track paths don't line up with THIS rig's
+	# skeleton. Retarget every bone track onto our skeleton's actual node path (bone names
+	# match: mixamorig_*) and drop non-bone tracks like the cigarette.
+	var path := "res://assets/models/characters/body/animations/smoke/mafia_smoke.fbx"
+	if not ResourceLoader.exists(path):
+		push_warning("BodyRig: smoke FBX not found: " + path)
+		return
+	var packed := load(path) as PackedScene
+	if not packed:
+		return
+	var inst: Node = packed.instantiate()
+	var src_players := inst.find_children("*", "AnimationPlayer", true, false)
+	if src_players.is_empty():
+		inst.free()
+		return
+	var src: AnimationPlayer = src_players[0] as AnimationPlayer
+	if not _anim_player.has_animation_library(""):
+		_anim_player.add_animation_library("", AnimationLibrary.new())
+	var dest_lib: AnimationLibrary = _anim_player.get_animation_library("")
+	if dest_lib.has_animation("smoke"):
+		inst.free()
+		return
+	for lib_name in src.get_animation_library_list():
+		var lib: AnimationLibrary = src.get_animation_library(lib_name)
+		for anim_name in lib.get_animation_list():
+			if anim_name == "RESET":
+				continue
+			var dup: Animation = lib.get_animation(anim_name).duplicate()
+			_retarget_clip_to_skeleton(dup)
+			dest_lib.add_animation("smoke", dup)
+			inst.free()
+			return
+	push_warning("BodyRig: no non-RESET animation found in smoke FBX")
+	inst.free()
+
+## Repoint a clip's bone tracks at THIS rig's skeleton and discard tracks that don't name
+## a real bone (e.g. an extra "Cigarette" mesh baked into the export). Needed when a clip
+## was exported with a different node hierarchy/path than the destination character.
+func _retarget_clip_to_skeleton(clip: Animation) -> void:
+	var skels := find_children("*", "Skeleton3D", true, false)
+	if skels.is_empty():
+		return
+	var skel: Skeleton3D = skels[0] as Skeleton3D
+	var anim_root := _anim_player.get_node_or_null(_anim_player.root_node)
+	if anim_root == null:
+		anim_root = _anim_player
+	var skel_path := String(anim_root.get_path_to(skel))
+	for t in range(clip.get_track_count() - 1, -1, -1):
+		var p := String(clip.track_get_path(t))
+		var colon := p.rfind(":")
+		if colon < 0:
+			clip.remove_track(t)
+			continue
+		var bone_name := p.substr(colon + 1)
+		# Keep ONLY rotation tracks on real bones. The re-exported clip's position/scale
+		# tracks don't match this skeleton's bind pose — they stretch the mesh (long
+		# fingers / huge arms) and the bad scale persists into walk/idle afterwards.
+		# Non-bone tracks (e.g. the cigarette mesh) are dropped too.
+		if clip.track_get_type(t) == Animation.TYPE_ROTATION_3D and skel.find_bone(bone_name) >= 0:
+			clip.track_set_path(t, NodePath(skel_path + ":" + bone_name))
+		else:
+			clip.remove_track(t)
+
 func play_anim(anim_id: String) -> void:
 	if not _anim_player:
 		return
@@ -279,7 +450,7 @@ func _force_loop_animations() -> void:
 			anim.loop_mode = Animation.LOOP_LINEAR
 
 func _try_import_walk() -> void:
-	var walk_path := "res://assets/models/characters/body/animations/Walking.fbx"
+	var walk_path := "res://assets/models/characters/body/animations/walking/Walking.fbx"
 	if not ResourceLoader.exists(walk_path):
 		return
 	var walk_packed := load(walk_path) as PackedScene
@@ -305,7 +476,7 @@ func _try_import_walk() -> void:
 	walk_inst.free()
 
 func _try_import_idle() -> void:
-	var idle_path := "res://assets/models/characters/body/animations/Breathing Idle.fbx"
+	var idle_path := "res://assets/models/characters/body/animations/idle/Idle.fbx"
 	if not ResourceLoader.exists(idle_path):
 		push_warning("BodyRig: idle FBX not found: " + idle_path)
 		return
@@ -343,7 +514,7 @@ func _try_import_idle() -> void:
 	idle_inst.free()
 
 func _try_import_sitting_idle() -> void:
-	var path := "res://assets/models/characters/body/Sitting Idle.fbx"
+	var path := "res://assets/models/characters/body/animations/sitting/Sitting.fbx"
 	if not ResourceLoader.exists(path):
 		push_warning("BodyRig: Sitting Idle FBX not found: " + path)
 		return

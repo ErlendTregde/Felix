@@ -32,10 +32,14 @@ var nearby_chair_seat_index: int = -1
 # Voice indicator
 var _talk_indicator: Label3D = null
 
-# Seated placement — raise the body so it sits on the chair instead of sinking
-# below the table, and push it back from the table edge so it doesn't clip through.
+# Seated placement for REMOTE full bodies — raise so the sitting pose rests on the chair
+# instead of sinking below the table, and push back from the edge so it doesn't clip.
 const SEATED_Y_OFFSET: float = 1.5
 const SEATED_OUTWARD_OFFSET: float = 2.0
+# Seated placement for the LOCAL player. Sitting keeps the SAME first-person camera as
+# walking (same eye height), just dropped/positioned at the chair. Movement is locked.
+const SEATED_LOCAL_Y: float = 0.0
+const SEATED_LOCAL_BACK: float = 1.5
 
 # Remote interpolation
 var _remote_target_pos: Vector3 = Vector3.ZERO
@@ -45,8 +49,15 @@ const REMOTE_LERP_SPEED: float = 12.0
 # Head look (yaw/pitch) — synced so others see players turning their heads.
 var _remote_head_yaw: float = 0.0
 var _remote_head_pitch: float = 0.0
+# Smoking emote: R toggles it (while standing); walking cancels. Synced so others see it.
+var _smoking: bool = false
+var _remote_smoking: bool = false
+const SMOKE_WALK_CANCEL: float = 0.5  # moving faster than this cancels the smoke emote
 # Card currently following this body's hand (the held/drawn card).
 var _held_card: Node3D = null
+# First-person arm-only viewmodel (local player only). Shown in first person instead of
+# the full body so you see just your own hands walking/smoking. Built in setup().
+var _fp_arms: FirstPersonArms = null
 # Smoothed horizontal speed used to drive remote walk/idle (avoids flicker between
 # 20Hz network packets, where the per-frame lerp delta momentarily drops to ~0).
 var _remote_speed_smoothed: float = 0.0
@@ -88,23 +99,35 @@ func setup(p_seat_index: int, p_peer_id: int, p_display_name: String, p_color: C
 	_talk_indicator.visible = false
 	add_child(_talk_indicator)
 
-	# Set the model on the rig (Walking.fbx is the character + walk animation).
+	# Set the model on the rig. T-Pose.fbx is the rigged character (skeleton, no real
+	# motion); BodyRig merges in the walk/idle/seated clips from animations/. Everyone —
+	# local and remote — uses the same full-body character.
 	if body_rig:
-		var model_path := "res://assets/models/characters/body/Walking.fbx"
+		var model_path := "res://assets/models/characters/body/T-Pose.fbx"
 		if ResourceLoader.exists(model_path):
 			body_rig.model_scene = load(model_path)
+
+	# Local player gets an arm-only overlay that sits exactly on top of the body (same
+	# transform as BodyRig) and is shown only in first person. Parent it to the BODY (not
+	# the camera) so the arms stay put as you look around — the head-height camera then sees
+	# your own arms where they really are. Remote bodies never need it.
+	if is_local and _fp_arms == null:
+		_fp_arms = FirstPersonArms.new()
+		_fp_arms.name = "FirstPersonArms"
+		add_child(_fp_arms)
 
 func set_standing(standing: bool) -> void:
 	is_standing = standing
 	if standing:
 		is_seated = false
-	# Visible when standing, or when seated for REMOTE players (so others see the
-	# sitting pose). The local player never renders their own seated body — they'd
-	# only see the back of their own head in front of the seated table camera.
-	visible = standing or (is_seated and not is_local)
-	# Only the local player processes input and physics — never when seated.
+	# The local player only sees their OWN body in 3rd-person view. In first person
+	# (standing or seated) their body is hidden — no head/back blocking the view, and no
+	# hands when seated. Remote players are always visible so others see a whole character.
+	_update_body_visibility()
+	# Movement physics only while standing. Input (mouse-look) stays on while seated too,
+	# so a seated player can still look around — they just can't walk.
 	set_physics_process(standing and is_local)
-	set_process_input(standing and is_local)
+	set_process_input(is_local and (standing or is_seated))
 
 	if standing:
 		name_label.visible = true
@@ -117,32 +140,90 @@ func set_standing(standing: bool) -> void:
 		nearby_chair_seat_index = -1
 		if interaction_label:
 			interaction_label.visible = false
+		# Sitting/standing-down ends any smoking emote (the pose is standing-only).
+		_smoking = false
+		if body_rig:
+			body_rig.stop_smoke()
 		if is_seated and body_rig:
 			body_rig.play_anim("seated_idle")
+
+## Local player: own BODY MESH shows only in 3rd-person view; in first person it's hidden so
+## the arm overlay can be seen instead. Remote players: whole body visible while in the room.
+## CRITICAL: for the local player we must NOT hide the PlayerBody node itself — that would
+## also hide the FPSCamera's first-person arms (a descendant). Hide only the BodyRig mesh.
+func _update_body_visibility() -> void:
+	var in_world := is_standing or is_seated
+	if not is_local:
+		visible = in_world
+		return
+	visible = true  # keep the node tree visible so the FP arms can render
+	var show_full_body := in_world and is_instance_valid(third_person_camera) and third_person_camera.current
+	if body_rig:
+		body_rig.visible = show_full_body
+	if name_label:
+		name_label.visible = show_full_body  # no floating name tag over our own first-person view
+
+## Drive the first-person arm viewmodel: visible only when the local player is in first
+## person (FPS camera current) and in the world, playing walk/smoke to match the body.
+## Idle (neither walking nor smoking) hides the arms — there's no idle_fp clip.
+func _update_fp_arms() -> void:
+	if not is_local or not is_instance_valid(_fp_arms):
+		return
+	var first_person := is_instance_valid(fps_camera) and fps_camera.current
+	var in_world := is_standing or is_seated
+	if not first_person or not in_world:
+		_fp_arms.visible = false
+		_fp_arms.set_state("")
+		return
+	# Mirror whatever the body is doing so the overlay arms match the real pose.
+	var state := "idle"
+	if is_seated and not is_standing:
+		state = "seated"
+	elif is_standing:
+		if _smoking:
+			state = "smoke"
+		elif Vector2(velocity.x, velocity.z).length() > BodyRig.WALK_ENTER:
+			state = "walk"
+	_fp_arms.set_state(state)
+	_fp_arms.visible = true
 
 ## Position the body at a chair and play the sitting idle animation.
 ## Call this BEFORE set_standing(false) so is_seated is already true.
 func seat_at(chair_position: Vector3, face_direction: Vector3) -> void:
 	is_seated = true
-	# Place body at the chair, raised so the sitting pose rests on the chair, and
-	# pushed outward (face_direction points away from the table) so it doesn't clip.
-	var outward := face_direction.normalized() * SEATED_OUTWARD_OFFSET
-	global_position = Vector3(chair_position.x + outward.x, SEATED_Y_OFFSET, chair_position.z + outward.z)
-	# Same convention as spawn_at_chair: body forward (−Z) points toward the table.
+	if is_local:
+		# First-person seated: sit at the chair (pushed back a touch from the edge) at
+		# standing eye height, so the FPS camera gives a natural seated view of the table.
+		var back := face_direction.normalized() * SEATED_LOCAL_BACK
+		global_position = Vector3(chair_position.x + back.x, SEATED_LOCAL_Y, chair_position.z + back.z)
+	else:
+		# Remote full body: raised so the sitting pose rests on the chair, and pushed
+		# outward (face_direction points away from the table) so it doesn't clip.
+		var outward := face_direction.normalized() * SEATED_OUTWARD_OFFSET
+		global_position = Vector3(chair_position.x + outward.x, SEATED_Y_OFFSET, chair_position.z + outward.z)
+	# Body forward (−Z, which the FPS camera looks along) points toward the table center.
 	if face_direction.length() > 0.001:
 		rotation.y = atan2(face_direction.x, face_direction.z)
+	# Keep mouse-look continuous from the seated facing so the view doesn't snap.
+	if is_local:
+		mouse_rotation.x = rotation.y
 	set_standing(false)
 
-func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_pitch: float = 0.0) -> void:
+func apply_remote_state(pos: Vector3, rot_y: float, head_yaw: float = 0.0, head_pitch: float = 0.0, smoking: bool = false) -> void:
 	_remote_target_pos = pos
 	_remote_target_rot_y = rot_y
 	_remote_head_yaw = head_yaw
 	_remote_head_pitch = head_pitch
+	_remote_smoking = smoking
 	_has_remote_target = true
 
 ## Local player's vertical look angle (head pitch), for syncing while standing.
 func get_head_pitch() -> float:
 	return fps_camera.rotation.x if fps_camera else 0.0
+
+## Whether this body is currently playing the smoking emote (used for multiplayer sync).
+func is_smoking_emote() -> bool:
+	return _smoking
 
 ## Reach to the draw pile, then move the hand to where the drawn card is held
 ## and keep it there until release_card() is called.
@@ -166,6 +247,12 @@ func release_card() -> void:
 		body_rig.end_reach()
 
 func _process(delta: float) -> void:
+	# Keep visibility in sync with the active camera (local body shows only in 3rd person).
+	_update_body_visibility()
+	# First-person arm viewmodel mirrors what the body is doing (walk/smoke), shown only
+	# when the local player is actually in first person.
+	_update_fp_arms()
+
 	# Smoothly interpolate remote bodies toward their latest synced position
 	if not is_local and _has_remote_target and is_standing:
 		global_position = global_position.lerp(_remote_target_pos, clampf(REMOTE_LERP_SPEED * delta, 0.0, 1.0))
@@ -175,7 +262,8 @@ func _process(delta: float) -> void:
 	if body_rig and is_seated and not is_standing:
 		body_rig.set_seated()
 
-	# Drive walk/idle blend on the body rig (same rig for local and remote).
+	# Drive walk/idle blend on the body rig (same rig for local and remote). Smoking
+	# overrides locomotion; for the local player, starting to move cancels the emote.
 	if body_rig and is_standing:
 		var speed: float
 		if is_local:
@@ -187,7 +275,14 @@ func _process(delta: float) -> void:
 			var inst_speed := moved / maxf(delta, 0.001)
 			_remote_speed_smoothed = lerpf(_remote_speed_smoothed, inst_speed, clampf(REMOTE_SPEED_SMOOTH * delta, 0.0, 1.0))
 			speed = _remote_speed_smoothed
-		body_rig.set_locomotion(speed)
+		if is_local and _smoking and speed > SMOKE_WALK_CANCEL:
+			_smoking = false  # walking cancels the smoke emote
+		var want_smoke: bool = _smoking if is_local else _remote_smoking
+		if want_smoke:
+			body_rig.start_smoke()    # idempotent: smoke pose + particles on
+		else:
+			body_rig.stop_smoke()     # idempotent: particles off
+			body_rig.set_locomotion(speed)
 	_last_pos = global_position
 
 	# Drive the head-look on remote bodies so others see them turning their head.
@@ -233,12 +328,19 @@ func spawn_at_chair(chair_position: Vector3, face_direction: Vector3) -> void:
 		mouse_rotation.y = 0.0
 
 func _input(event: InputEvent) -> void:
-	if not is_standing or not is_local:
+	# Local player can look around while standing OR seated (seated just can't walk).
+	if not is_local or not (is_standing or is_seated):
 		return
 
 	# V toggles between FPS and 3rd-person debug view
 	if event is InputEventKey and event.pressed and event.keycode == KEY_V:
 		_toggle_third_person()
+		return
+
+	# R toggles the smoking emote (only while standing; walking cancels it).
+	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
+		if is_standing:
+			_smoking = not _smoking
 		return
 
 	# Escape toggles mouse capture

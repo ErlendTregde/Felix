@@ -462,7 +462,7 @@ func setup_players(count: int) -> void:
 
 	_apply_local_seat_camera_view()
 	_apply_local_seat_lighting()
-	
+
 	if local_seat_index >= 0 and local_seat_index < players.size():
 		print("Local participant %s is seated at %s" % [players[local_seat_index].player_name, get_seat_label(local_seat_index)])
 	if debug_view_seat_override >= 0:
@@ -883,6 +883,8 @@ func _set_debug_view_seat_override(seat_id: int) -> void:
 	_apply_local_seat_lighting()
 
 func _apply_local_seat_camera_view() -> void:
+	# Overhead seated view (the good angle). The local player's own head is hidden
+	# (see PlayerBody.set_head_hidden) so it doesn't block this view.
 	var active_view_seat := get_active_view_seat_index()
 	if not camera_controller or active_view_seat < 0 or active_view_seat >= player_grids.size():
 		return
@@ -1376,10 +1378,10 @@ func _process(delta: float) -> void:
 		head_yaw = look.x
 		head_pitch = look.y
 	SteamMovementService.sync_body_position.rpc(
-		local_seat_index, pos.x, pos.y, pos.z, body.rotation.y, head_yaw, head_pitch
+		local_seat_index, pos.x, pos.y, pos.z, body.rotation.y, head_yaw, head_pitch, body.is_smoking_emote()
 	)
 
-func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float) -> void:
+func _on_remote_position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float, smoking: bool) -> void:
 	var body := _find_body_at_seat(seat_index)
 	if body and not body.is_local:
-		body.apply_remote_state(pos, rot_y, head_yaw, head_pitch)
+		body.apply_remote_state(pos, rot_y, head_yaw, head_pitch, smoking)

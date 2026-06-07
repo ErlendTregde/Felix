@@ -1,6 +1,6 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://bmflil0vxc15p"]
 
-[ext_resource type="Script" path="res://scripts/player_body.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://donrc3o571jbq" path="res://scripts/player_body.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://scenes/players/body_rig.tscn" id="2_body_rig"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1"]
@@ -18,51 +18,47 @@ properties/1/replication_mode = 1
 [sub_resource type="SphereShape3D" id="SphereShape3D_1"]
 radius = 1.8
 
-[node name="PlayerBody" type="CharacterBody3D"]
+[node name="PlayerBody" type="CharacterBody3D" unique_id=80027950]
 collision_layer = 2
-collision_mask = 1
 script = ExtResource("1_script")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1086205171]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.5, 0)
 shape = SubResource("CapsuleShape3D_1")
 
-[node name="BodyRig" parent="." instance=ExtResource("2_body_rig")]
+[node name="BodyRig" parent="." unique_id=1708910332 instance=ExtResource("2_body_rig")]
 
-[node name="NameLabel" type="Label3D" parent="."]
+[node name="NameLabel" type="Label3D" parent="." unique_id=970419361]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 11.5, 0)
-text = "Player"
-font_size = 32
-outline_size = 6
 billboard = 1
 no_depth_test = true
+text = "Player"
+outline_size = 6
 
-[node name="FPSCamera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10.0, 0)
+[node name="FPSCamera" type="Camera3D" parent="." unique_id=110042043]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10, 0)
 
-[node name="InteractionRay" type="RayCast3D" parent="FPSCamera"]
+[node name="InteractionRay" type="RayCast3D" parent="FPSCamera" unique_id=1031656884]
 target_position = Vector3(0, 0, -3)
 collision_mask = 4
 
-[node name="ThirdPersonPivot" type="Node3D" parent="."]
+[node name="ThirdPersonPivot" type="Node3D" parent="." unique_id=747493837]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0)
 
-[node name="ThirdPersonArm" type="SpringArm3D" parent="ThirdPersonPivot"]
+[node name="ThirdPersonArm" type="SpringArm3D" parent="ThirdPersonPivot" unique_id=16977581]
 spring_length = 8.0
-collision_mask = 1
 margin = 0.5
 
-[node name="ThirdPersonCamera" type="Camera3D" parent="ThirdPersonPivot/ThirdPersonArm"]
-current = false
+[node name="ThirdPersonCamera" type="Camera3D" parent="ThirdPersonPivot/ThirdPersonArm" unique_id=1698790608]
 
-[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
-replication_config = SubResource("SceneReplicationConfig_1")
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=1714538468]
 replication_interval = 0.05
+replication_config = SubResource("SceneReplicationConfig_1")
 
-[node name="PlayerDetector" type="Area3D" parent="."]
+[node name="PlayerDetector" type="Area3D" parent="." unique_id=1355881621]
 collision_layer = 0
 collision_mask = 8
 
-[node name="DetectorShape" type="CollisionShape3D" parent="PlayerDetector"]
+[node name="DetectorShape" type="CollisionShape3D" parent="PlayerDetector" unique_id=147289297]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.5, 0)
 shape = SubResource("SphereShape3D_1")

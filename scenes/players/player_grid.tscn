@@ -1,9 +1,9 @@
-[gd_scene load_steps=2 format=3 uid="uid://bwx9yw4qln8zg"]
+[gd_scene format=3 uid="uid://bwyayw4qln80g"]
 
-[ext_resource type="Script" path="res://scripts/player_grid.gd" id="1_grid"]
+[ext_resource type="Script" uid="uid://be17vcj3xs3ss" path="res://scripts/player_grid.gd" id="1_grid"]
 
-[node name="PlayerGrid" type="Node3D"]
+[node name="PlayerGrid" type="Node3D" unique_id=1615395495]
 script = ExtResource("1_grid")
 grid_spacing = 1.6
 
-[node name="PositionMarkers" type="Node3D" parent="."]
+[node name="PositionMarkers" type="Node3D" parent="." unique_id=1692662839]

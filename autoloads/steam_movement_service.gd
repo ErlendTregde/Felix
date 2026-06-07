@@ -5,7 +5,7 @@ extends Node
 
 signal player_stood(seat_index: int)
 signal player_sat(seat_index: int, target_seat: int)
-signal position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float)
+signal position_updated(seat_index: int, pos: Vector3, rot_y: float, head_yaw: float, head_pitch: float, smoking: bool)
 
 var _standing_seats: Dictionary = {}  # seat_index -> bool
 var _occupied_seats: Dictionary = {}  # seat_index -> true (seats with someone sitting in them)
@@ -211,5 +211,5 @@ func local_sit(seat_index: int, target_seat: int = -1, original_seat: int = -1) 
 # ---------------------------------------------------------------------------
 
 @rpc("any_peer", "unreliable")
-func sync_body_position(seat_index: int, pos_x: float, pos_y: float, pos_z: float, rot_y: float, head_yaw: float = 0.0, head_pitch: float = 0.0) -> void:
-	position_updated.emit(seat_index, Vector3(pos_x, pos_y, pos_z), rot_y, head_yaw, head_pitch)
+func sync_body_position(seat_index: int, pos_x: float, pos_y: float, pos_z: float, rot_y: float, head_yaw: float = 0.0, head_pitch: float = 0.0, smoking: bool = false) -> void:
+	position_updated.emit(seat_index, Vector3(pos_x, pos_y, pos_z), rot_y, head_yaw, head_pitch, smoking)
