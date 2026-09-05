@@ -14,7 +14,7 @@ class_name FirstPersonArms
 ## as the body, so we also merge the body's idle/sitting clips onto this rig to mirror every
 ## state.
 
-const WALK_PATH := "res://assets/models/characters/body/firstperson/walking/walking_fp.fbx"
+const WALK_PATH := "res://assets/models/characters/body/firstperson/walking/walking_fp_hands.fbx"
 const SMOKE_PATH := "res://assets/models/characters/body/firstperson/smoke/mafia_smoke_fp.fbx"
 const IDLE_PATH := "res://assets/models/characters/body/animations/idle/Idle.fbx"
 const SEATED_PATH := "res://assets/models/characters/body/animations/sitting/Sitting.fbx"
@@ -39,6 +39,26 @@ var _anim_player: AnimationPlayer = null
 var _skel: Skeleton3D = null
 var _clip_names: Dictionary = {}  # state -> animation name
 var _state: String = ""
+
+## Smoke puff + cigarette for the smoke emote. The FP arms carry their own copy (the body's
+## own emitter/cigarette are hidden along with the body in first person), and the walking-hands
+## FBX has no cigarette baked in, so we build a little one and stick it in the hand.
+var _hand_bone_idx: int = -1
+var _smoke_emitter: Node3D = null
+var _smoke_particles: GPUParticles3D = null
+var _cigarette: Node3D = null   # cigarette + ember; visible only while smoking
+
+## Where the cigarette / smoke sits, as an offset from the right hand in YOUR OWN frame:
+## +X = your right, −X = your left, +Y = up, −Z = forward (the way you look). World units.
+## Placed each frame in _process, so the axes are intuitive (not the twisted bone frame).
+## While smoking, nudge it live: J/L = left/right, I/K = forward/back, U/O = up/down —
+## the new value prints to the Output log so it can be baked in as the default here.
+@export var smoke_offset: Vector3 = Vector3(-1.1, -0.05, -0.85)
+@export var cigarette_rotation_deg: Vector3 = Vector3(90.0, 0.0, 0.0)
+@export var cigarette_length: float = 0.4
+@export var cigarette_radius: float = 0.025
+## Debug: set false to disable the live J/L/I/K/U/O nudge keys once placement is dialed in.
+@export var cigarette_tuning_keys: bool = true
 
 func _ready() -> void:
 	_build()
@@ -72,6 +92,11 @@ func _build() -> void:
 	var skels := _model.find_children("*", "Skeleton3D", true, false)
 	if not skels.is_empty():
 		_skel = skels[0] as Skeleton3D
+		# Mixamo right-hand bone — the smoke puff rides its world position each frame.
+		for i in _skel.get_bone_count():
+			if _skel.get_bone_name(i).to_lower().ends_with("righthand"):
+				_hand_bone_idx = i
+				break
 
 	# walk ships in this FBX; merge the rest (same Mixamo skeleton, so they retarget cleanly).
 	_clip_names["walk"] = _first_non_reset()
@@ -87,6 +112,9 @@ func _build() -> void:
 		mi.visible = true
 		mi.extra_cull_margin = 16384.0
 
+	_setup_smoke_particles()
+	_setup_cigarette()
+
 ## Drive the overlay to match the body: "walk", "idle", "seated", "smoke".
 func set_state(state: String) -> void:
 	if state == _state or not _anim_player:
@@ -97,9 +125,32 @@ func set_state(state: String) -> void:
 		clip = _clip_names.get("idle", "")  # fall back to idle if a clip is missing
 	if clip != "" and _anim_player.current_animation != clip:
 		_anim_player.play(clip)
+	var smoking := (state == "smoke")
+	if _smoke_particles:
+		_smoke_particles.emitting = smoking
+	if _cigarette:
+		_cigarette.visible = smoking
 
 func current_state() -> String:
 	return _state
+
+func _process(_delta: float) -> void:
+	# While smoking, place the cigarette + smoke at the hand, offset in YOUR frame (intuitive
+	# axes), not the twisted hand-bone frame. Driven every frame so it tracks the hand's pose.
+	if _state != "smoke" or _cigarette == null or _skel == null or _hand_bone_idx < 0:
+		return
+	var hand_pos: Vector3 = (_skel.global_transform * _skel.get_bone_global_pose(_hand_bone_idx)).origin
+	var b := global_transform.basis.orthonormalized()
+	var anchor := hand_pos + b * smoke_offset
+	var t := _cigarette.global_transform
+	t.origin = anchor
+	t.basis = b * Basis.from_euler(Vector3(
+		deg_to_rad(cigarette_rotation_deg.x),
+		deg_to_rad(cigarette_rotation_deg.y),
+		deg_to_rad(cigarette_rotation_deg.z)))
+	_cigarette.global_transform = t
+	if _smoke_emitter:
+		_smoke_emitter.global_position = anchor
 
 func _first_non_reset() -> String:
 	if not _anim_player:
@@ -174,3 +225,141 @@ func _force_loop() -> void:
 			if anim_name == "RESET":
 				continue
 			lib.get_animation(anim_name).loop_mode = Animation.LOOP_LINEAR
+
+## Own smoke puff (mirrors BodyRig._setup_smoke_particles). Lives under this node (unscaled),
+## driven to the hand each frame in _process so sizes/velocities stay in world units.
+func _setup_smoke_particles() -> void:
+	var emitter := Node3D.new()
+	emitter.name = "SmokeEmitter"
+	add_child(emitter)
+
+	var p := GPUParticles3D.new()
+	p.name = "Smoke"
+	p.amount = 10
+	p.lifetime = 2.2
+	p.emitting = false
+	p.local_coords = false  # puffs drift in world space instead of snapping with the hand
+
+	var mat := ParticleProcessMaterial.new()
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	mat.emission_sphere_radius = 0.03
+	mat.direction = Vector3(0, 1, 0)
+	mat.spread = 8.0
+	mat.initial_velocity_min = 0.12
+	mat.initial_velocity_max = 0.3
+	mat.gravity = Vector3(0, 0.3, 0)  # drifts gently upward
+	mat.scale_min = 0.3
+	mat.scale_max = 0.5
+	var scale_curve := Curve.new()
+	scale_curve.add_point(Vector2(0.0, 0.2))
+	scale_curve.add_point(Vector2(1.0, 1.0))  # small → larger over life
+	var sct := CurveTexture.new()
+	sct.curve = scale_curve
+	mat.scale_curve = sct
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.85, 0.85, 0.85, 0.4))
+	grad.set_color(1, Color(0.85, 0.85, 0.85, 0.0))  # fade alpha to 0 over life
+	var gt := GradientTexture1D.new()
+	gt.gradient = grad
+	mat.color_ramp = gt
+	p.process_material = mat
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.4, 0.4)
+	var dmat := StandardMaterial3D.new()
+	dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	dmat.albedo_texture = _make_soft_round_texture()
+	dmat.vertex_color_use_as_albedo = true  # apply the per-particle color ramp
+	quad.material = dmat
+	p.draw_pass_1 = quad
+
+	emitter.add_child(p)
+	_smoke_emitter = emitter
+	_smoke_particles = p
+
+## A soft round white→transparent radial texture, so quad puffs look like smoke blobs.
+func _make_soft_round_texture() -> Texture2D:
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.5, 0.5)
+	t.fill_to = Vector2(0.5, 0.0)
+	t.width = 64
+	t.height = 64
+	return t
+
+## Build a cigarette (with a glowing ember at the tip) that rides the hand while smoking.
+## It lives under THIS (unscaled) node and is placed each frame in _process in the player's
+## frame, so the tuning offset is intuitive world units. Hidden until smoking. The ember and
+## paper draw over the hand (no_depth_test) so they can never hide inside the mesh.
+func _setup_cigarette() -> void:
+	var root := Node3D.new()
+	root.name = "Cigarette"
+	root.visible = false
+	add_child(root)
+
+	# Paper body: a thin cylinder whose lit end sits at the root origin (the ember / emit point,
+	# where the smoke rises); the paper extends the OTHER way, down toward the hand.
+	var body := MeshInstance3D.new()
+	body.name = "Paper"
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = cigarette_radius
+	cyl.bottom_radius = cigarette_radius
+	cyl.height = cigarette_length
+	cyl.radial_segments = 8
+	body.mesh = cyl
+	body.position = Vector3(0.0, cigarette_length * 0.5, 0.0)
+	var pmat := StandardMaterial3D.new()
+	pmat.albedo_color = Color(0.95, 0.93, 0.88)  # off-white paper
+	pmat.emission_enabled = true
+	pmat.emission = Color(0.9, 0.88, 0.8)
+	pmat.emission_energy_multiplier = 0.5
+	pmat.no_depth_test = true   # draw over the hand so it can't hide inside the mesh
+	body.material_override = pmat
+	body.extra_cull_margin = 16384.0
+	root.add_child(body)
+
+	# Glowing ember at the tip — also the smoke emit point.
+	var ember := MeshInstance3D.new()
+	ember.name = "Ember"
+	var sph := SphereMesh.new()
+	sph.radius = cigarette_radius * 1.8
+	sph.height = cigarette_radius * 3.6
+	ember.mesh = sph
+	var emat := StandardMaterial3D.new()
+	emat.albedo_color = Color(1.0, 0.35, 0.05)
+	emat.emission_enabled = true
+	emat.emission = Color(1.0, 0.4, 0.1)
+	emat.emission_energy_multiplier = 4.0  # embers glow
+	emat.no_depth_test = true
+	ember.material_override = emat
+	ember.extra_cull_margin = 16384.0
+	root.add_child(ember)
+
+	_cigarette = root
+
+## Debug: nudge the cigarette/smoke into place at runtime in YOUR frame (see smoke_offset).
+## Prints the new value so it can be pasted back as the default. Toggle off with
+## cigarette_tuning_keys. _process re-applies smoke_offset every frame.
+func _input(event: InputEvent) -> void:
+	if not cigarette_tuning_keys or _cigarette == null:
+		return
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	var step := 0.05
+	var moved := true
+	match (event as InputEventKey).keycode:
+		KEY_L: smoke_offset.x += step   # your right
+		KEY_J: smoke_offset.x -= step   # your left
+		KEY_K: smoke_offset.z += step   # back
+		KEY_I: smoke_offset.z -= step   # forward
+		KEY_U: smoke_offset.y += step   # up
+		KEY_O: smoke_offset.y -= step   # down
+		_: moved = false
+	if moved:
+		print("smoke_offset = Vector3(%.3f, %.3f, %.3f)" % [smoke_offset.x, smoke_offset.y, smoke_offset.z])

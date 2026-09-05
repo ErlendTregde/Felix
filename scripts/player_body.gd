@@ -175,11 +175,11 @@ func _update_fp_arms() -> void:
 		_fp_arms.visible = false
 		_fp_arms.set_state("")
 		return
-	# Mirror whatever the body is doing so the overlay arms match the real pose.
+	# Mirror whatever the body is doing so the overlay arms match the real pose — except
+	# when seated: the sitting pose looks wrong up close in first person, so the local FP
+	# arms fall back to idle. (Remote bodies still show the real sitting anim to others.)
 	var state := "idle"
-	if is_seated and not is_standing:
-		state = "seated"
-	elif is_standing:
+	if is_standing:
 		if _smoking:
 			state = "smoke"
 		elif Vector2(velocity.x, velocity.z).length() > BodyRig.WALK_ENTER:
